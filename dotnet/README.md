@@ -79,4 +79,4 @@ Tcursor/
 
 ## 许可
 
-以 **AGPL-3.0** 发布（见 [../LICENSE](../LICENSE)）；分发包内第三方组件（.NET 运行时、FlaUI 等，均为 MIT）的许可说明见根目录 [THIRD-PARTY-NOTICES.txt](../THIRD-PARTY-NOTICES.txt)。
+以 **GPL-3.0** 发布（见 [../LICENSE](../LICENSE)）；分发包内第三方组件（.NET 运行时、FlaUI 等，均为 MIT）的许可说明见根目录 [THIRD-PARTY-NOTICES.txt](../THIRD-PARTY-NOTICES.txt)。

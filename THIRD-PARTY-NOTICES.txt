@@ -1,9 +1,8 @@
 Tcursor —— 第三方组件与许可说明
 ========================================
 
-本软件是 InputTip（原作者 abgox，https://github.com/abgox/InputTip）的个人修改版，
-以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）发布。完整许可条款见本目录 LICENSE 文件
-（其中包含原项目版权声明：Copyright (C) 2023-present abgox）。
+本软件以 GNU 通用公共许可证第 3 版（GPL-3.0）发布（© 2026 Crucialmer）；
+完整许可条款见本目录 LICENSE 文件。
 
 分发包（自包含单文件 exe）内包含以下第三方组件，按其原始许可条款再分发：
 
@@ -40,5 +39,5 @@ Tcursor —— 第三方组件与许可说明
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
   DEALINGS IN THE SOFTWARE.
 
-本软件自身的 C#/.NET 源代码与修改部分同样以 AGPL-3.0 授权。
+本软件的 C#/.NET 源代码以 GPL-3.0 授权。
 源代码：https://github.com/Crucialmer/Tcursor

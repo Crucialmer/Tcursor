@@ -38,4 +38,4 @@
 
 ## 许可
 
-以 **GNU Affero 通用公共许可证第 3 版（AGPL-3.0）** 发布，见 [LICENSE](LICENSE)；第三方组件许可说明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
+以 **GNU 通用公共许可证第 3 版（GPL-3.0）** 发布（© 2026 Crucialmer），见 [LICENSE](LICENSE)；第三方组件许可说明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
