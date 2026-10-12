@@ -91,7 +91,7 @@ public sealed class AppConfig
     public Dictionary<string, SymbolStyle> Styles { get; set; } = CreateDefaultStyles();
     public List<RuleConfig> Rules { get; set; } = new();
 
-    /// <summary>默认形状样式（颜色取原版各状态配色）</summary>
+    /// <summary>默认形状样式（各状态的默认配色）</summary>
     public static Dictionary<string, SymbolStyle> CreateDefaultStyles() => new()
     {
         ["Chinese"] = new SymbolStyle { ShapeColor = "#FF0000" },

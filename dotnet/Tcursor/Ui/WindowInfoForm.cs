@@ -5,7 +5,7 @@ using Tcursor.Core;
 namespace Tcursor.Ui;
 
 /// <summary>
-/// 「窗口信息」面板（对齐原版交互）：实时显示当前选中（前台）窗口的信息，
+/// 「窗口信息」面板：实时显示当前选中（前台）窗口的信息，
 /// 并可一键把该窗口的进程添加为白名单规则。
 /// </summary>
 internal sealed class WindowInfoForm : MacDialogForm

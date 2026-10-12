@@ -130,7 +130,7 @@ internal static class Selftest
                     bmp.Dispose();
             }
 
-            // 托盘图标（内嵌原版图标资源）
+            // 托盘图标（内嵌应用图标资源）
             try
             {
                 using Bitmap? trayRun = TrayIconFactory.CreateBitmap(false, 64);

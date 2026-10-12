@@ -3,7 +3,7 @@ using static Tcursor.Win32.NativeMethods;
 
 namespace Tcursor.Core;
 
-/// <summary>窗口信息探测结果（对齐原版「窗口信息」五个字段）</summary>
+/// <summary>窗口信息探测结果（窗口信息面板的五个字段）</summary>
 internal readonly record struct WindowProbeResult(
     string Process, string RootClass, string FocusClass, string Title, string Path);
 
