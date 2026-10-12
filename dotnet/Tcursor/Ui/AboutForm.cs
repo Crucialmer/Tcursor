@@ -46,7 +46,7 @@ internal sealed class AboutForm : MacDialogForm
         };
         var license = new Label
         {
-            Text = "许可：AGPL-3.0；基于 abgox/InputTip；第三方组件见 THIRD-PARTY-NOTICES.txt",
+            Text = "许可：AGPL-3.0；© 2026 Crucialmer；第三方组件见 THIRD-PARTY-NOTICES.txt",
             AutoSize = true,
             ForeColor = UiTheme.Dim,
             BackColor = UiTheme.CardBg,

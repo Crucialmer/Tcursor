@@ -5,7 +5,7 @@ using System.Reflection;
 
 namespace Tcursor.Ui;
 
-/// <summary>托盘/应用图标工厂：内嵌上游图标资源（运行 = 蓝、暂停 = 橙）</summary>
+/// <summary>托盘/应用图标工厂：内嵌应用图标资源（运行 = 蓝、暂停 = 橙）</summary>
 internal static class TrayIconFactory
 {
     private static Stream? OpenAsset(string fileName)
