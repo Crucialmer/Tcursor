@@ -1,0 +1,44 @@
+Tcursor —— 第三方组件与许可说明
+========================================
+
+本软件是 InputTip（原作者 abgox，https://github.com/abgox/InputTip）的个人修改版，
+以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）发布。完整许可条款见本目录 LICENSE 文件
+（其中包含原项目版权声明：Copyright (C) 2023-present abgox）。
+
+分发包（自包含单文件 exe）内包含以下第三方组件，按其原始许可条款再分发：
+
+1) .NET 运行时与基础类库（含 Windows Forms、System.Drawing.Common 等）
+   Copyright (c) .NET Foundation and Contributors
+   MIT License — https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
+
+2) FlaUI.Core / FlaUI.UIA3（UI 自动化）
+   Copyright (c) 2016-2024（作者 Roemer）
+   MIT License — https://github.com/FlaUI/FlaUI/blob/master/LICENSE
+
+3) Interop.UIAutomationClient（UI 自动化互操作）
+   Copyright (c) 2019 Roman
+   MIT License — https://github.com/FlaUI/Interop.UIAutomationClient
+
+4) System.Management（FlaUI.Core 依赖）
+   Copyright (c) .NET Foundation and Contributors
+   MIT License — https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
+
+以上 MIT 许可文本（各组件通用）：
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+本软件自身的 C#/.NET 源代码与修改部分同样以 AGPL-3.0 授权。
+源代码：https://github.com/Crucialmer/Tcursor

@@ -1,0 +1,4 @@
+# 构建产物（dotnet/ 项目内另有 .gitignore）
+.vs/
+bin/
+obj/

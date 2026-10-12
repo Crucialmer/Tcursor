@@ -1,0 +1,376 @@
+using System.Drawing;
+using Tcursor.Capture;
+using Tcursor.Config;
+using Tcursor.Render;
+using static Tcursor.Win32.NativeMethods;
+
+namespace Tcursor.Core;
+
+/// <summary>
+/// 核心控制器：工作线程检测循环（前台窗口 → 白名单规则 → 状态检测 → 捕获链 → 符号显示）。
+///
+/// v0.2.2 优化：按需读取前台信息、无规则快速短路、exe 名/DPI 缓存；
+/// v0.2.1 修复：空闲隐藏顺序、隐藏后重显、退出边界；v0.2 优化点：
+/// - 自适应轮询：显示时快频（可配，默认 20ms）/ 隐藏时降频 120ms / 空闲暂停（前台事件与配置变更即时唤醒）
+/// - 低分配检测循环：前台信息复用缓冲、进程名短时缓存、状态键查表（无每帧字符串构造）
+/// - 规则正则预编译（RuntimeRule）；样式对象引用比对触发重绘（无字符串签名）
+/// - 捕获链每进程缓存 + 失败退避；UIA 调用在独立线程限时等待（见 UiaCaretCapture）
+/// </summary>
+internal sealed class CaretController : IDisposable
+{
+    private const int HiddenWaitMs = 120;
+    private const int IdleWaitMs = 200;
+    private const long CaptureGraceMs = 300;   // 捕获瞬时失败宽限：期内保持显示（防渲染抖动/超时闪烁）
+
+    private static readonly string[] StateKeys = Enum.GetNames<InputState>();
+
+    private readonly object _configGate = new();
+    private readonly CaptureChain _chain = new();
+    private readonly ForegroundReader _foreground = new();
+    private readonly LayeredSymbolWindow _window;
+    private readonly ManualResetEventSlim _wake = new(false);
+    private readonly Thread _worker;
+    private readonly int _ownPid = Environment.ProcessId;
+
+    private AppConfig _config;
+    private volatile RuntimeRule[] _rules = Array.Empty<RuntimeRule>();
+    private volatile bool _needsTitle;
+    private volatile bool _needsClass;
+    private volatile bool _quit;
+    private volatile bool _paused;
+
+    // 检测线程独占的辅助缓存
+    private readonly Dictionary<string, string> _exeNames = new();
+    private IntPtr _dpiMonitor;
+    private double _dpiScale;
+    private long _dpiCheckedAt;
+
+    // 状态机（仅工作线程访问）
+    private Point _lastPos = new(int.MinValue, int.MinValue);
+    private SymbolStyle? _lastStyle;
+    private double _lastScale;
+    private Bitmap? _lastBitmap;
+    private bool _shown;
+    private long _lastCaptureOkAt;
+
+    public CaretController(AppConfig config, LayeredSymbolWindow window)
+    {
+        _config = config;
+        _window = window;
+        _worker = new Thread(WorkerLoop)
+        {
+            IsBackground = true,
+            Name = "Tcursor.Worker",
+        };
+        RebuildRules(config);
+    }
+
+    public void Start() => _worker.Start();
+
+    /// <summary>唤醒工作线程立即执行一次检测（前台窗口变化/配置变更时调用）</summary>
+    public void Wake()
+    {
+        try
+        {
+            _wake.Set();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 退出中：忽略
+        }
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _paused = paused;
+        Wake();
+    }
+
+    public void UpdateConfig(AppConfig config)
+    {
+        lock (_configGate)
+        {
+            _config = config;
+            RebuildRules(config);
+        }
+        _chain.Reset();
+        Wake();
+    }
+
+    private void RebuildRules(AppConfig config)
+    {
+        var list = new List<RuntimeRule>(config.Rules.Count);
+        bool needsTitle = false;
+        bool needsClass = false;
+        foreach (RuleConfig rule in config.Rules)
+        {
+            if (!rule.Enabled)
+                continue;
+            RuntimeRule? compiled = RuntimeRule.TryCompile(rule);
+            if (compiled is null)
+                continue;
+            list.Add(compiled);
+            needsTitle |= compiled.Title is not null;
+            needsClass |= compiled.Class is not null;
+        }
+        _rules = list.ToArray();
+        _needsTitle = needsTitle;
+        _needsClass = needsClass;
+    }
+
+    private void WorkerLoop()
+    {
+        while (!_quit)
+        {
+            AppConfig config;
+            lock (_configGate)
+                config = _config;
+
+            bool idle = SysInfo.GetIdleMs() > (uint)Math.Max(0, config.IdleStopMs);
+            int waitMs = idle
+                ? IdleWaitMs
+                : _shown ? Math.Max(5, config.PollIntervalMs) : HiddenWaitMs;
+
+            bool signaled;
+            try
+            {
+                signaled = _wake.Wait(waitMs);
+                if (signaled)
+                    _wake.Reset();
+            }
+            catch (ObjectDisposedException)
+            {
+                break; // 退出中：直接结束
+            }
+            if (_quit)
+                break;
+
+            try
+            {
+                Tick(config);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+            }
+        }
+    }
+
+    private void Tick(AppConfig config)
+    {
+        if (!config.Enabled || _paused)
+        {
+            HideSymbol();
+            return;
+        }
+
+        uint idleMs = SysInfo.GetIdleMs();
+        if (config.HideDelayMs > 0 && idleMs > (uint)Math.Max(0, config.HideDelayMs))
+        {
+            HideSymbol(); // 空闲隐藏（先于暂停判断，否则 HideDelay >= IdleStop 时永不生效）
+            return;
+        }
+
+        if (idleMs > (uint)Math.Max(0, config.IdleStopMs))
+            return; // 输入空闲：暂停检测（保持当前显示）
+
+        if (_rules.Length == 0)
+        {
+            HideSymbol(); // 无生效规则（强制白名单）：不可能显示，直接短路
+            return;
+        }
+
+        WindowInfo win = _foreground.Read(_needsTitle, _needsClass);
+        if (win.Hwnd == IntPtr.Zero || win.Pid == 0 || win.Pid == (uint)_ownPid || win.Process.Length == 0)
+        {
+            HideSymbol();
+            return;
+        }
+
+        RuntimeRule? rule = MatchRule(win);
+        if (rule is null)
+        {
+            HideSymbol();
+            return;
+        }
+
+        InputState state = StateDetector.Detect(win.Hwnd);
+        string chainSpec = rule.CaptureChain.Length > 0 ? rule.CaptureChain : config.DefaultCaptureChain;
+
+        if (!_chain.TryCapture(win.Pid, win.Hwnd, chainSpec, out CaretRect caret))
+        {
+            // 捕获瞬时失败（渲染抖动/UIA 超时/元素重建）：小宽限内保持显示，避免闪烁；持续失败才隐藏
+            if (_shown && Environment.TickCount64 - _lastCaptureOkAt <= CaptureGraceMs)
+                return;
+            HideSymbol();
+            return;
+        }
+        _lastCaptureOkAt = Environment.TickCount64;
+
+        // 光标应在窗口范围内（滚动出视野时不显示）
+        if (GetWindowRect(win.Hwnd, out RECT windowRect))
+        {
+            int cx = caret.Left;
+            int cy = (caret.Top + caret.Bottom) / 2;
+            if (cx < windowRect.Left - 4 || cx > windowRect.Right + 4 ||
+                cy < windowRect.Top - 4 || cy > windowRect.Bottom + 4)
+            {
+                HideSymbol();
+                return;
+            }
+        }
+
+        string stateKey = StateKeys[(int)state];
+        if (!config.Styles.TryGetValue(stateKey, out SymbolStyle? style) || style.Kind == SymbolKind.None)
+        {
+            HideSymbol();
+            return;
+        }
+
+        double scale = DpiScaleFor(caret.Left, caret.Top);
+        // 偏移 = 全局偏移（所有状态共用）+ 规则追加偏移（v0.6.3 起样式级偏移已废弃）
+        int offsetX = (int)Math.Round((rule.OffsetX + config.ScreenOffsetX) * scale);
+        int offsetY = (int)Math.Round((rule.OffsetY + config.ScreenOffsetY) * scale);
+        // 「柔和阴影」边框样式会在位图四周扩出阴影边距：显示位置相应回补，保证可见形状锚点不变
+        int pad = SymbolRenderer.GetShadowPadding(style, config.ShapeEdgeStyle, scale);
+        int x = caret.Left + offsetX - pad;
+        int y = (config.OriginBelow ? caret.Bottom : caret.Top) + offsetY - pad;
+
+        bool redraw = !ReferenceEquals(style, _lastStyle) || Math.Abs(scale - _lastScale) > 0.001 || _lastBitmap is null;
+        bool moved = x != _lastPos.X || y != _lastPos.Y;
+
+        // 注意：即使样式与位置都未变，只要当前是“隐藏”状态（曾 HideSymbol），也要重新显示
+        if (!redraw && !moved && _shown)
+            return;
+
+        if (redraw)
+        {
+            Bitmap? fresh = SymbolRenderer.Render(style, config.ShapeCornerPreference, config.ShapeEdgeStyle, scale);
+            if (fresh is null)
+            {
+                HideSymbol();
+                return;
+            }
+            Bitmap? old = _lastBitmap;
+            _lastBitmap = fresh;
+            _lastStyle = style;
+            _lastScale = scale;
+            ShowAt(fresh, x, y);
+            old?.Dispose();
+        }
+        else
+        {
+            ShowAt(_lastBitmap!, x, y);
+        }
+
+        _lastPos = new Point(x, y);
+    }
+
+    // ---------------- 显示/隐藏 ----------------
+
+    private void ShowAt(Bitmap bitmap, int x, int y)
+    {
+        _shown = InvokeOnUi(() => _window.ShowBitmap(bitmap, x, y));
+    }
+
+    private void HideSymbol()
+    {
+        if (!_shown)
+            return;
+        _shown = false;
+        InvokeOnUi(() => _window.HideSymbol());
+    }
+
+    /// <summary>在 UI 线程执行；返回是否真正执行（窗口已销毁/调用失败返回 false）</summary>
+    private bool InvokeOnUi(Action action)
+    {
+        if (_window.IsDisposed || !_window.IsHandleCreated)
+            return false;
+        try
+        {
+            if (_window.InvokeRequired)
+                _window.Invoke(action);
+            else
+                action();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+            return false;
+        }
+    }
+
+    // ---------------- 规则匹配 ----------------
+
+    private RuntimeRule? MatchRule(in WindowInfo win)
+    {
+        string processExe = GetProcessExeName(win.Process);
+        foreach (RuntimeRule rule in _rules)
+        {
+            if (rule.Matches(win.Process, processExe, win.Title, win.Class))
+                return rule;
+        }
+        return null;
+    }
+
+    /// <summary>进程名 → “进程名.exe” 缓存（检测线程独占；限量防膨胀）</summary>
+    private string GetProcessExeName(string process)
+    {
+        if (_exeNames.TryGetValue(process, out string? cached))
+            return cached;
+        if (_exeNames.Count >= 64)
+            _exeNames.Clear();
+        string exe = process + ".exe";
+        _exeNames[process] = exe;
+        return exe;
+    }
+
+    // ---------------- DPI ----------------
+
+    /// <summary>按显示器缓存 DPI 缩放（同一显示器 5 秒内不重复查询）</summary>
+    private double DpiScaleFor(int x, int y)
+    {
+        try
+        {
+            IntPtr monitor = MonitorFromPoint(new POINT { X = x, Y = y }, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero)
+                return _dpiScale > 0 ? _dpiScale : 1.0;
+
+            long now = Environment.TickCount64;
+            if (monitor == _dpiMonitor && _dpiScale > 0 && now - _dpiCheckedAt < 5000)
+                return _dpiScale;
+
+            if (GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0 && dpiX > 0)
+            {
+                _dpiMonitor = monitor;
+                _dpiScale = dpiX / 96.0;
+                _dpiCheckedAt = now;
+                return _dpiScale;
+            }
+        }
+        catch
+        {
+            // 取不到按上次值/100%
+        }
+        return _dpiScale > 0 ? _dpiScale : 1.0;
+    }
+
+    public void Dispose()
+    {
+        _quit = true;
+        Wake();
+        try
+        {
+            _worker.Join(1000);
+        }
+        catch
+        {
+            // 忽略等待失败
+        }
+        _lastBitmap?.Dispose();
+        _lastBitmap = null;
+        _chain.Dispose();
+        _wake.Dispose();
+    }
+}
