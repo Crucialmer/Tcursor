@@ -21,8 +21,12 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly Label _status = new() { AutoSize = true, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
     private readonly MacButton _addButton = new(accent: true) { Text = "添加为白名单规则(&A)", Width = 168, Height = 32, Enabled = false };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
+    private const int PathCacheTtlMs = 3000;   // 进程路径缓存：MainModule 是跨进程模块查询，面板存活期间最贵的一项
 
     private string _lastProcess = "";
+    private uint _pathPid;
+    private string _pathValue = "";
+    private long _pathAt;
 
     public WindowInfoForm(AppConfig config, Action applyConfig)
     {
@@ -125,6 +129,17 @@ internal sealed class WindowInfoForm : MacDialogForm
         PerformLayout();   // 此时子树已齐备，AutoScale 按（当前 DPI / 96）整体缩放
     }
 
+    /// <summary>退出路径经 TrayApp.Dispose → 只走 Dispose 不走 FormClosed，定时器需在此同样释放</summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _timer.Stop();
+            _timer.Dispose();
+        }
+        base.Dispose(disposing);
+    }
+
     private static TextBox MakeBox() => new()
     {
         ReadOnly = true,
@@ -153,12 +168,21 @@ internal sealed class WindowInfoForm : MacDialogForm
         if (pid == 0 || pid == (uint)Environment.ProcessId)
             return; // 自身界面：保留上次内容
 
-        WindowProbeResult info = WindowProbe.GetInfo(fg);
+        long now = Environment.TickCount64;
+        bool refreshPath = pid != _pathPid || now - _pathAt >= PathCacheTtlMs;
+
+        WindowProbeResult info = WindowProbe.GetInfo(fg, includePath: refreshPath);
+        if (refreshPath)
+        {
+            _pathPid = pid;
+            _pathAt = now;
+            _pathValue = info.Path;
+        }
         _process.Text = info.Process;
         _rootClass.Text = info.RootClass;
         _focusClass.Text = info.FocusClass;
         _title.Text = info.Title;
-        _path.Text = info.Path;
+        _path.Text = _pathValue;
 
         if (info.Process.Length > 0)
         {

@@ -10,6 +10,8 @@ namespace Tcursor.Capture;
 /// </summary>
 internal sealed class GuiCaretCapture : ICaretCapture
 {
+    private static readonly int GtiSize = Marshal.SizeOf<GUITHREADINFO>();   // 常量：避免每次捕获运行时求尺寸
+
     public bool TryGetCaret(IntPtr hwnd, out CaretRect caret)
     {
         caret = default;
@@ -19,7 +21,7 @@ internal sealed class GuiCaretCapture : ICaretCapture
             if (tid == 0)
                 return false;
 
-            var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+            var gti = new GUITHREADINFO { cbSize = GtiSize };
             if (!GetGUIThreadInfo(tid, ref gti))
                 return false;
             if (gti.hwndCaret == IntPtr.Zero)

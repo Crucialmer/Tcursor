@@ -52,21 +52,22 @@ internal sealed class LayeredSymbolWindow : Form
         }
     }
 
-    /// <summary>在屏幕物理坐标 (x, y) 显示位图（保留逐像素透明）</summary>
-    internal void ShowBitmap(Bitmap bitmap, int x, int y)
+    /// <summary>在屏幕物理坐标 (x, y) 显示位图（保留逐像素透明）。
+    /// 返回是否更新成功——失败（显示器/桌面拓扑变化后缓存的 DC 失效等）会丢弃 GDI 缓存，下次调用整体重建重试。</summary>
+    internal bool ShowBitmap(Bitmap bitmap, int x, int y)
     {
         if (_screenDc == IntPtr.Zero)
         {
             _screenDc = GetDC(IntPtr.Zero);
             if (_screenDc == IntPtr.Zero)
-                return;
+                return false;
         }
 
         // 位图变化（或尺寸变化）才重建 GDI 缓存；仅移动时复用（快速路径）
         if (!ReferenceEquals(_cachedBitmap, bitmap) || _cachedWidth != bitmap.Width || _cachedHeight != bitmap.Height)
         {
             if (!RebuildBitmapCache(bitmap))
-                return;
+                return false;
         }
 
         var size = new SIZE { cx = bitmap.Width, cy = bitmap.Height };
@@ -80,12 +81,28 @@ internal sealed class LayeredSymbolWindow : Form
             AlphaFormat = AC_SRC_ALPHA,
         };
 
-        UpdateLayeredWindow(Handle, _screenDc, ref destPos, ref size, _memDc, ref sourcePos, 0, ref blend, ULW_ALPHA);
+        if (!UpdateLayeredWindow(Handle, _screenDc, ref destPos, ref size, _memDc, ref sourcePos, 0, ref blend, ULW_ALPHA))
+        {
+            // 返回值必须检查：失败时位图不会显示，若仍报告成功，控制器会一直走「仅移动」快速路径而不重试
+            ReleaseBitmapCache();
+            ReleaseScreenDc();
+            return false;
+        }
 
         if (!_visible)
         {
             ShowWindow(Handle, SW_SHOWNOACTIVATE);
             _visible = true;
+        }
+        return true;
+    }
+
+    private void ReleaseScreenDc()
+    {
+        if (_screenDc != IntPtr.Zero)
+        {
+            ReleaseDC(IntPtr.Zero, _screenDc);
+            _screenDc = IntPtr.Zero;
         }
     }
 
@@ -151,17 +168,19 @@ internal sealed class LayeredSymbolWindow : Form
         {
             UiTheme.DetectAndApply();
         }
+        // 显示器拓扑变化（外接/投影/RDP/分辨率切换）：缓存的屏幕 DC 与位图可能失效，提前丢弃由下次调用重建
+        if (m.Msg == 0x007E)   // WM_DISPLAYCHANGE
+        {
+            ReleaseBitmapCache();
+            ReleaseScreenDc();
+        }
         base.WndProc(ref m);
     }
 
     protected override void Dispose(bool disposing)
     {
         ReleaseBitmapCache();
-        if (_screenDc != IntPtr.Zero)
-        {
-            ReleaseDC(IntPtr.Zero, _screenDc);
-            _screenDc = IntPtr.Zero;
-        }
+        ReleaseScreenDc();
         base.Dispose(disposing);
     }
 }

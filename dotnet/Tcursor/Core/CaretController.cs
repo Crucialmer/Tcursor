@@ -126,7 +126,8 @@ internal sealed class CaretController : IDisposable
             lock (_configGate)
                 config = _config;
 
-            bool idle = SysInfo.GetIdleMs() > (uint)Math.Max(0, config.IdleStopMs);
+            uint idleMs = SysInfo.GetIdleMs();   // 每轮只取一次（Tick 复用，避免同值双算）
+            bool idle = idleMs > (uint)Math.Max(0, config.IdleStopMs);
             int waitMs = idle
                 ? IdleWaitMs
                 : _shown ? Math.Max(5, config.PollIntervalMs) : HiddenWaitMs;
@@ -147,7 +148,7 @@ internal sealed class CaretController : IDisposable
 
             try
             {
-                Tick(config);
+                Tick(config, idleMs);
             }
             catch (Exception ex)
             {
@@ -156,7 +157,7 @@ internal sealed class CaretController : IDisposable
         }
     }
 
-    private void Tick(AppConfig config)
+    private void Tick(AppConfig config, uint idleMs)
     {
         if (!config.Enabled || _paused)
         {
@@ -164,7 +165,6 @@ internal sealed class CaretController : IDisposable
             return;
         }
 
-        uint idleMs = SysInfo.GetIdleMs();
         if (config.HideDelayMs > 0 && idleMs > (uint)Math.Max(0, config.HideDelayMs))
         {
             HideSymbol(); // 空闲隐藏（先于暂停判断，否则 HideDelay >= IdleStop 时永不生效）
@@ -194,7 +194,6 @@ internal sealed class CaretController : IDisposable
             return;
         }
 
-        InputState state = StateDetector.Detect(win.Hwnd);
         string chainSpec = rule.CaptureChain.Length > 0 ? rule.CaptureChain : config.DefaultCaptureChain;
 
         if (!_chain.TryCapture(win.Pid, win.Hwnd, chainSpec, out CaretRect caret))
@@ -220,6 +219,9 @@ internal sealed class CaretController : IDisposable
             }
         }
 
+        // 状态检测放在「捕获成功 + 光标在窗口内」之后：中文布局下它要向 IME 窗口发跨进程消息（SendMessageTimeout），
+        // 而状态只在确认要显示时才被消费——未命中/无光标的 tick 不必付这笔开销（行为不变，采样点最多后移捕获耗时）
+        InputState state = StateDetector.Detect(win.Hwnd);
         string stateKey = StateKeys[(int)state];
         if (!config.Styles.TryGetValue(stateKey, out SymbolStyle? style) || style.Kind == SymbolKind.None)
         {
@@ -278,21 +280,21 @@ internal sealed class CaretController : IDisposable
         if (!_shown)
             return;
         _shown = false;
-        InvokeOnUi(() => _window.HideSymbol());
+        InvokeOnUi(() =>
+        {
+            _window.HideSymbol();
+            return true;
+        });
     }
 
-    /// <summary>在 UI 线程执行；返回是否真正执行（窗口已销毁/调用失败返回 false）</summary>
-    private bool InvokeOnUi(Action action)
+    /// <summary>在 UI 线程执行；返回动作结果（窗口已销毁/调用失败返回 false）</summary>
+    private bool InvokeOnUi(Func<bool> action)
     {
         if (_window.IsDisposed || !_window.IsHandleCreated)
             return false;
         try
         {
-            if (_window.InvokeRequired)
-                _window.Invoke(action);
-            else
-                action();
-            return true;
+            return _window.InvokeRequired ? (bool)_window.Invoke(action)! : action();
         }
         catch (Exception ex)
         {

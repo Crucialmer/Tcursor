@@ -18,6 +18,7 @@ internal sealed class CaptureChain : IDisposable
     private const long InitialBackoffMs = 250;
     private const long MaxBackoffMs = 3000;
     private const long SlowFailureMs = 100;   // 达到该耗时的失败视为超时/卡顿（记退避）；更快的失败不记
+    private const int PerPidCacheMax = 256;   // per-PID 缓存上限（超限整体清空；与 ForegroundReader 同策略，防长时运行无界增长）
 
     private sealed class Backoff
     {
@@ -68,6 +69,8 @@ internal sealed class CaptureChain : IDisposable
                 continue;
             if (TryRunTracked(backoff, name, hwnd, now, out rect))
             {
+                if (_lastGood.Count >= PerPidCacheMax)
+                    _lastGood.Clear();
                 _lastGood[pid] = name;
                 LastUsedMode = name;
                 return true;
@@ -89,7 +92,8 @@ internal sealed class CaptureChain : IDisposable
 
     private bool TryRun(string name, IntPtr hwnd, out CaretRect rect)
     {
-        ICaretCapture? capture = name.ToUpperInvariant() switch
+        // name 已由 ParseChain 统一大写（此处勿再 ToUpperInvariant：热路径上每次尝试都会多一次分配）
+        ICaretCapture? capture = name switch
         {
             "GUI" => _gui,
             "UIA" => _uia,
@@ -128,7 +132,11 @@ internal sealed class CaptureChain : IDisposable
     private Dictionary<string, Backoff> GetBackoffFor(uint pid)
     {
         if (!_backoff.TryGetValue(pid, out var map))
+        {
+            if (_backoff.Count >= PerPidCacheMax)
+                _backoff.Clear();
             _backoff[pid] = map = new Dictionary<string, Backoff>(StringComparer.OrdinalIgnoreCase);
+        }
         return map;
     }
 

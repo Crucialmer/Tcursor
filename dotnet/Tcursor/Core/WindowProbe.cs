@@ -10,7 +10,10 @@ internal readonly record struct WindowProbeResult(
 /// <summary>读取指定窗口的进程/类名/标题等信息（供「窗口信息」面板与自检使用）</summary>
 internal static class WindowProbe
 {
-    public static WindowProbeResult GetInfo(IntPtr hwnd)
+    private static readonly int GtiSize = System.Runtime.InteropServices.Marshal.SizeOf<GUITHREADINFO>();   // 常量：避免每次调用运行时求尺寸
+
+    /// <param name="includePath">是否查询进程路径（MainModule 为跨进程模块查询，是最贵的一项；调用方可按 pid 缓存后跳过）</param>
+    public static WindowProbeResult GetInfo(IntPtr hwnd, bool includePath = true)
     {
         if (hwnd == IntPtr.Zero)
             return new WindowProbeResult("", "", "", "", "");
@@ -25,13 +28,16 @@ internal static class WindowProbe
             {
                 using var p = System.Diagnostics.Process.GetProcessById((int)pid);
                 process = p.ProcessName;
-                try
+                if (includePath)
                 {
-                    path = p.MainModule?.FileName ?? "";
-                }
-                catch
-                {
-                    path = ""; // 权限/位数受限时取不到
+                    try
+                    {
+                        path = p.MainModule?.FileName ?? "";
+                    }
+                    catch
+                    {
+                        path = ""; // 权限/位数受限时取不到
+                    }
                 }
             }
             catch
@@ -49,7 +55,7 @@ internal static class WindowProbe
         string focusClass = "";
         if (tid != 0)
         {
-            var gti = new GUITHREADINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<GUITHREADINFO>() };
+            var gti = new GUITHREADINFO { cbSize = GtiSize };
             if (GetGUIThreadInfo(tid, ref gti) && gti.hwndFocus != IntPtr.Zero)
             {
                 buffer.Clear();

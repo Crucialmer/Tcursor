@@ -145,7 +145,8 @@ internal sealed class SettingsForm : MacDialogForm
         cornerRows.Controls.Add(cornerRow1, 0, 0);
         cornerRows.Controls.Add(cornerRow2, 0, 1);
         _edgeButtons = BuildRadioGroup(EdgeOptions, out FlowLayoutPanel edgeFlow);
-        var lookRoot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = true, Margin = new Padding(0) };
+        // BackColor 必须显式对齐卡片：缺省时继承窗口底色，提示文字（MaximumSize 限宽）右侧会露出一条窗口色窄带
+        var lookRoot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
         lookRoot.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         lookRoot.Controls.Add(MakeRow("圆角", cornerRows), 0, 0);
         lookRoot.Controls.Add(MakeRow("边框样式", edgeFlow), 0, 1);
@@ -181,7 +182,7 @@ internal sealed class SettingsForm : MacDialogForm
         styleLine2.Controls.Add(CellLabel("透明度"));
         styleLine2.Controls.Add(_transparency);
         styleLine2.Controls.Add(_transparencyLabel);
-        var styleRoot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = true, Margin = new Padding(0) };
+        var styleRoot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
         styleRoot.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         styleRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         styleRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -570,6 +571,12 @@ internal sealed class PreviewBox : Control
     private Bitmap? _bitmap;
     private string _emptyText = "";
 
+    // 棋盘格背景缓存（拖动滑杆/切档位会高频重绘，逐格 FillRectangle 是纯浪费）
+    private Bitmap? _checker;
+    private int _checkerCell;
+    private Size _checkerSize;
+    private UiPalette? _checkerPalette;
+
     public PreviewBox()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
@@ -598,18 +605,40 @@ internal sealed class PreviewBox : Control
         Invalidate();
     }
 
+    /// <summary>棋盘格背景位图按需重建（尺寸/格子边长/调色板任一变化时）</summary>
+    private void EnsureChecker(int cell)
+    {
+        UiPalette palette = UiTheme.Current;
+        if (_checker is not null && _checkerCell == cell && _checkerSize == ClientSize && ReferenceEquals(_checkerPalette, palette))
+            return;
+
+        _checker?.Dispose();
+        int w = Math.Max(1, Width);
+        int h = Math.Max(1, Height);
+        _checker = new Bitmap(w, h);
+        using (var gc = Graphics.FromImage(_checker))
+        using (var even = new SolidBrush(palette.CheckerEven))
+        using (var odd = new SolidBrush(palette.CheckerOdd))
+        {
+            for (int y = 0; y < h; y += cell)
+            {
+                for (int x = 0; x < w; x += cell)
+                {
+                    gc.FillRectangle(((x / cell + y / cell) % 2) == 0 ? even : odd, x, y, cell, cell);
+                }
+            }
+        }
+        _checkerCell = cell;
+        _checkerSize = ClientSize;
+        _checkerPalette = palette;
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         int cell = Math.Max(4, UiTheme.Dpi(this, 8));
-        using var even = new SolidBrush(UiTheme.CheckerEven);
-        using var odd = new SolidBrush(UiTheme.CheckerOdd);
-        for (int y = 0; y < Height; y += cell)
-        {
-            for (int x = 0; x < Width; x += cell)
-            {
-                e.Graphics.FillRectangle(((x / cell + y / cell) % 2) == 0 ? even : odd, x, y, cell, cell);
-            }
-        }
+        EnsureChecker(cell);
+        if (_checker is not null)
+            e.Graphics.DrawImageUnscaled(_checker, 0, 0);
 
         if (_bitmap is not null)
         {
@@ -632,6 +661,8 @@ internal sealed class PreviewBox : Control
         {
             _bitmap?.Dispose();
             _bitmap = null;
+            _checker?.Dispose();
+            _checker = null;
         }
         base.Dispose(disposing);
     }

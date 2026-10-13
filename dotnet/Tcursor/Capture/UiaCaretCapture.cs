@@ -107,7 +107,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             {
                 if (_pending is not null)
                 {
-                    request.Done.Set();
+                    SetDone(request);
                     continue;
                 }
             }
@@ -129,7 +129,23 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 request.Rect = rect;
                 request.Found = true;
             }
+            SetDone(request);
+        }
+    }
+
+    /// <summary>通知调用方请求结束。
+    /// 防御性保护：当前实现中调用方只在成功分支释放 Done，理论上不会出现在此处释放的情况；
+    /// 但若后续改为「超时分支也立即释放」，本方法的 Set() 就会与 Dispose() 竞争——
+    /// 未捕获的 ObjectDisposedException 会终止整个 UIA 工作线程（= UIA 捕获永久失效），故在此兜底。</summary>
+    private static void SetDone(Request request)
+    {
+        try
+        {
             request.Done.Set();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 调用方已放弃并释放：忽略
         }
     }
 

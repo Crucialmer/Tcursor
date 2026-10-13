@@ -5,6 +5,12 @@ namespace Tcursor.Ui;
 /// <summary>白名单规则管理窗体（命中任一启用规则才显示符号；列表顺序即匹配顺序）</summary>
 internal sealed class RulesForm : MacDialogForm
 {
+    /// <summary>列宽（96 DPI 设计基线；合计 630px —— 列表包卡片后可用内宽约 646px，留余量避免出现横向滚动条）</summary>
+    private static readonly (string Title, int Width)[] Columns =
+    {
+        ("启用", 40), ("名称", 86), ("进程正则", 138), ("标题正则", 110), ("类名正则", 98), ("捕获链", 88), ("追加偏移", 70),
+    };
+
     private readonly AppConfig _config;
     private readonly List<RuleConfig> _rules;
     private readonly ListView _list = new();
@@ -29,16 +35,15 @@ internal sealed class RulesForm : MacDialogForm
         _list.FullRowSelect = true;
         _list.CheckBoxes = true;
         _list.Dock = DockStyle.Fill;
-        // 列宽适配：7 列合计 ≈674px，无需横向滚动即可看全（原合计 796px 会出横向滚动条）；实际宽度按 DPI 由 ApplyDpiMetrics 覆盖
-        _list.Columns.Add("启用", 42);
-        _list.Columns.Add("名称", 94);
-        _list.Columns.Add("进程正则", 146);
-        _list.Columns.Add("标题正则", 116);
-        _list.Columns.Add("类名正则", 106);
-        _list.Columns.Add("捕获链", 94);
-        _list.Columns.Add("追加偏移", 76);
+        _list.BorderStyle = BorderStyle.None;   // 卡片已提供边界，去掉列表自带边框
+        _list.BackColor = UiTheme.CardBg;
+        foreach (var (title, width) in Columns)
+            _list.Columns.Add(title, width);   // 实际宽度按 DPI 由 ApplyDpiMetrics 覆盖
         _list.DoubleClick += (_, _) => EditSelected();
-        _list.ItemChecked += (_, _) => SyncChecked();   // 勾选即回写模型：避免后续列表操作（增删/移动/编辑）重建列表时丢失未保存的勾选
+        // 勾选即回写模型：避免后续列表操作（增删/移动/编辑）重建列表时丢失未保存的勾选。
+        // 只同步「触发事件的那一项」——窗体首次显示时 WinForms 会对每个已勾选项触发本事件，
+        // 而此刻 Items 集合尾部尚未填充（全量枚举会产出 null 元素 → NullReferenceException）。
+        _list.ItemChecked += (_, e) => SyncChecked(e.Item);
 
         var side = new FlowLayoutPanel
         {
@@ -58,7 +63,8 @@ internal sealed class RulesForm : MacDialogForm
             AutoSize = true,
             MaximumSize = new Size(780, 0),   // 值随 DPI 由框架缩放
             ForeColor = UiTheme.Dim,
-            Padding = new Padding(10, 6, 10, 6),
+            Margin = new Padding(0, 0, 0, 2),
+            Padding = new Padding(0, 6, 0, 6),
             Text = "命中任一启用规则才会显示光标符号（白名单机制）。\r\n" +
                    "进程正则匹配进程名（可不带 .exe）；标题/类名正则为可选的附加条件；列表自上而下按顺序匹配。\r\n" +
                    "提示：托盘菜单「窗口信息」可实时查看窗口进程，并一键添加规则。",
@@ -77,7 +83,7 @@ internal sealed class RulesForm : MacDialogForm
         cancel.DialogResult = DialogResult.Cancel;
         ok.Click += (_, _) =>
         {
-            SyncChecked();
+            SyncAllChecked();
             _config.Rules = _rules;
         };
         buttons.Controls.Add(ok);
@@ -85,15 +91,18 @@ internal sealed class RulesForm : MacDialogForm
         AcceptButton = ok;
         CancelButton = cancel;
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(14, 6, 14, 10) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // 列表包一层卡片：与设置窗口的卡片式观感统一（此前列表直接落在窗口底色上）
+        var listCard = new MacCard { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(10) };
+        listCard.Controls.Add(_list);
         root.Controls.Add(hint, 0, 0);
         root.SetColumnSpan(hint, 2);
-        root.Controls.Add(_list, 0, 1);
+        root.Controls.Add(listCard, 0, 1);
         root.Controls.Add(side, 1, 1);
         root.Controls.Add(buttons, 0, 2);
         root.SetColumnSpan(buttons, 2);
@@ -109,9 +118,8 @@ internal sealed class RulesForm : MacDialogForm
     /// <summary>AutoScale 不覆盖的像素级度量（ListView 列宽）：按当前 DPI 应用。</summary>
     private void ApplyDpiMetrics()
     {
-        int[] widths = { 42, 94, 146, 116, 106, 94, 76 };   // 设计基线列宽（合计 ≈674px）
-        for (int i = 0; i < widths.Length && i < _list.Columns.Count; i++)
-            _list.Columns[i].Width = UiTheme.Dpi(_list, widths[i]);
+        for (int i = 0; i < Columns.Length && i < _list.Columns.Count; i++)
+            _list.Columns[i].Width = UiTheme.Dpi(_list, Columns[i].Width);
     }
 
     protected override void OnLoad(EventArgs e)
@@ -210,11 +218,18 @@ internal sealed class RulesForm : MacDialogForm
         }
     }
 
-    private void SyncChecked()
+    private void SyncChecked(ListViewItem? item)
     {
-        foreach (ListViewItem item in _list.Items)
+        if (item?.Tag is RuleConfig rule)
+            rule.Enabled = item.Checked;
+    }
+
+    /// <summary>提交前的兜底全量回写（空元素防御：集合构建期可能短暂产出 null 元素）。</summary>
+    private void SyncAllChecked()
+    {
+        foreach (ListViewItem? item in _list.Items)
         {
-            if (item.Tag is RuleConfig rule)
+            if (item?.Tag is RuleConfig rule)
                 rule.Enabled = item.Checked;
         }
     }
