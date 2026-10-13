@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Tcursor</AssemblyName>
     <RootNamespace>Tcursor</RootNamespace>
-    <Version>2.0.0</Version>
+    <Version>2.0.1</Version>
     <AssemblyTitle>Tcursor</AssemblyTitle>
     <Product>Tcursor</Product>
     <Description>输入法状态光标提示：在光标旁显示输入法状态符号（GPL-3.0）</Description>

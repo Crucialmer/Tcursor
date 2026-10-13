@@ -37,6 +37,7 @@ internal sealed class CaretController : IDisposable
     private volatile bool _needsTitle;
     private volatile bool _needsClass;
     private volatile bool _quit;
+    private volatile bool _shuttingDown;
     private volatile bool _paused;
 
     // 检测线程独占的辅助缓存
@@ -290,7 +291,7 @@ internal sealed class CaretController : IDisposable
     /// <summary>在 UI 线程执行；返回动作结果（窗口已销毁/调用失败返回 false）</summary>
     private bool InvokeOnUi(Func<bool> action)
     {
-        if (_window.IsDisposed || !_window.IsHandleCreated)
+        if (_shuttingDown || _window.IsDisposed || !_window.IsHandleCreated)
             return false;
         try
         {
@@ -360,11 +361,14 @@ internal sealed class CaretController : IDisposable
 
     public void Dispose()
     {
+        // 退出顺序：先置「正在关闭」——工作线程此后不再向界面线程投递（否则界面线程已离开消息循环时，
+        // 工作线程会阻塞在 Invoke 上直到 Join 超时，退出必然多等一整个超时）
+        _shuttingDown = true;
         _quit = true;
         Wake();
         try
         {
-            _worker.Join(1000);
+            _worker.Join(500);   // 有标志兜底后，工作线程最多还在一次 tick 里（捕获后端各自有限时）
         }
         catch
         {
