@@ -197,10 +197,13 @@ internal sealed class CaretController : IDisposable
 
         string chainSpec = rule.CaptureChain.Length > 0 ? rule.CaptureChain : config.DefaultCaptureChain;
 
-        if (!_chain.TryCapture(win.Pid, win.Hwnd, chainSpec, out CaretRect caret))
+        if (!_chain.TryCapture(win.Pid, win.Hwnd, chainSpec, out CaretRect caret, out bool transientFailure))
         {
-            // 捕获瞬时失败（渲染抖动/UIA 超时/元素重建）：小宽限内保持显示，避免闪烁；持续失败才隐藏
-            if (_shown && Environment.TickCount64 - _lastCaptureOkAt <= CaptureGraceMs)
+            // 捕获失败分两类（v2.0.2）：
+            //  · 瞬态失败（后端超时/目标繁忙而失败，transientFailure=true）：小宽限内保持显示，避免渲染抖动闪烁；
+            //  · 确定性失败（各后端都很快地回答「此处无光标」——例如焦点已离开输入框/点了非输入区域）：
+            //    立即隐藏。此前一律宽限 300ms，表现为「离开输入框后符号还残留一会儿」。
+            if (_shown && transientFailure && Environment.TickCount64 - _lastCaptureOkAt <= CaptureGraceMs)
                 return;
             HideSymbol();
             return;

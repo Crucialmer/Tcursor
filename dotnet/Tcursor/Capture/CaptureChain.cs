@@ -38,9 +38,18 @@ internal sealed class CaptureChain : IDisposable
     /// <summary>最近一次成功使用的后端名（用于自检/诊断）</summary>
     public string? LastUsedMode { get; private set; }
 
+    /// <summary>最近一次失败是否为「瞬态失败」：有后端耗时 ≥ SlowFailureMs（超时/目标繁忙）才失败，
+    /// 而非各后端一致地快速回答「此处无光标」。调用方据此区分“闪烁”与“确实该隐藏”。</summary>
+    public bool LastFailureWasTransient { get; private set; }
+
     public bool TryCapture(uint pid, IntPtr hwnd, string chainSpec, out CaretRect rect)
+        => TryCapture(pid, hwnd, chainSpec, out rect, out _);
+
+    /// <param name="transientFailure">失败是否属于瞬态（有后端超时/卡顿）：true 时调用方可在小宽限内保持显示防闪烁。</param>
+    public bool TryCapture(uint pid, IntPtr hwnd, string chainSpec, out CaretRect rect, out bool transientFailure)
     {
         rect = default;
+        transientFailure = false;
         LastUsedMode = null;
         string[] names = ParseChain(chainSpec);
         if (names.Length == 0)
@@ -48,12 +57,13 @@ internal sealed class CaptureChain : IDisposable
 
         long now = Environment.TickCount64;
         Dictionary<string, Backoff> backoff = GetBackoffFor(pid);
+        bool slow = false;
 
         // 1) 最近成功的后端优先
         string? last = null;
         if (_lastGood.TryGetValue(pid, out last) && Contains(names, last))
         {
-            if (!IsBackedOff(backoff, last, now) && TryRunTracked(backoff, last, hwnd, now, out rect))
+            if (!IsBackedOff(backoff, last, now) && TryRunTracked(backoff, last, hwnd, now, out rect, out slow))
             {
                 LastUsedMode = last;
                 return true;
@@ -67,7 +77,7 @@ internal sealed class CaptureChain : IDisposable
                 continue;
             if (IsBackedOff(backoff, name, now))
                 continue;
-            if (TryRunTracked(backoff, name, hwnd, now, out rect))
+            if (TryRunTracked(backoff, name, hwnd, now, out rect, out bool slowThis))
             {
                 if (_lastGood.Count >= PerPidCacheMax)
                     _lastGood.Clear();
@@ -75,8 +85,11 @@ internal sealed class CaptureChain : IDisposable
                 LastUsedMode = name;
                 return true;
             }
+            slow |= slowThis;
         }
 
+        transientFailure = slow;
+        LastFailureWasTransient = slow;
         return false;
     }
 
@@ -108,11 +121,13 @@ internal sealed class CaptureChain : IDisposable
         return capture.TryGetCaret(hwnd, out rect);
     }
 
-    /// <summary>执行单个后端：成功清空其退避记录；慢失败累计渐进退避；快失败不记（下周期可重试）。</summary>
-    private bool TryRunTracked(Dictionary<string, Backoff> backoff, string name, IntPtr hwnd, long now, out CaretRect rect)
+    /// <summary>执行单个后端：成功清空其退避记录；慢失败累计渐进退避；快失败不记（下周期可重试）。
+    /// <paramref name="slowFailure"/> 报告本次失败是否为慢失败（超时/卡顿）——供调用方区分瞬态与确定性失败。</summary>
+    private bool TryRunTracked(Dictionary<string, Backoff> backoff, string name, IntPtr hwnd, long now, out CaretRect rect, out bool slowFailure)
     {
         long t0 = Environment.TickCount64;
         bool ok = TryRun(name, hwnd, out rect);
+        slowFailure = false;
         if (ok)
         {
             backoff.Remove(name);
@@ -121,6 +136,7 @@ internal sealed class CaptureChain : IDisposable
         if (!name.Equals("GUI", StringComparison.OrdinalIgnoreCase) &&
             Environment.TickCount64 - t0 >= SlowFailureMs)
         {
+            slowFailure = true;
             Backoff b = backoff.TryGetValue(name, out Backoff? existing) ? existing : backoff[name] = new Backoff();
             b.Strikes++;
             int shift = Math.Min(b.Strikes - 1, 5);

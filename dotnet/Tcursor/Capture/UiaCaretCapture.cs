@@ -192,7 +192,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             }
 
             var text = element.Patterns.Text.PatternOrDefault;
-            if (text is not null)
+            if (text is not null && !IsChromiumPageRoot(element))
             {
                 ITextRange[] selection = text.GetSelection();
                 if (selection is { Length: > 0 }
@@ -209,6 +209,38 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             // 元素失效/模式不可用：按未命中处理
         }
         return false;
+    }
+
+    /// <summary>
+    /// 「Chromium 页面根文档」判定（Chrome / Edge / WebView2 / Electron 同源实现）。
+    ///
+    /// Chromium 系浏览器会在渲染宿主（Chrome_RenderWidgetHostHWND）之下的**根文档**上维护一个“伪光标”：
+    /// 折叠选区始终停留在“最后一次点击处”，**即使焦点不在任何可编辑元素上**——点击正文文字行、空白区域、
+    /// 链接、图片，Focus 元素都会是这篇根文档，选区退化到 1px 宽（“光标形”），从而被上面的选区退化路径
+    /// 当作输入框光标采用，符号就显示在了没有输入框的地方（用户上报：Chrome 中点击文字行也会弹提示）。
+    ///
+    /// 真实可编辑元素不受此判定影响：表单控件（input/textarea/地址栏）暴露为 Edit；contenteditable
+    /// 暴露为**文档之下**的子元素（Group 或嵌套 Document，如 iframe 富文本编辑器）——它们的父元素不是
+    /// 渲染宿主，因此照常采用（实测：Chrome 155 点 textarea/内容可编辑区仍正常显示）。
+    /// 判定失败（父元素读不到）时不拦截，保持原有行为。
+    /// </summary>
+    private static bool IsChromiumPageRoot(AutomationElement element)
+    {
+        try
+        {
+            if (element.ControlType != ControlType.Document)
+                return false;
+            AutomationElement? parent = element.Parent;
+            if (parent is null)
+                return false;
+            string cls = parent.ClassName ?? "";
+            return cls.StartsWith("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal)
+                || cls.StartsWith("Chrome_WidgetWin_", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>选区退化路径的最大可接受宽度（像素）：只把“光标形”（零宽/单字符）选区当作光标，
