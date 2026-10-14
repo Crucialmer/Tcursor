@@ -15,6 +15,15 @@ internal static class StateDetector
     private const int IMC_GETCONVERSIONMODE = 0x1;
     private const int IMC_GETOPENSTATUS = 0x5;
 
+    /// <summary>同一前台窗口内 IME 状态查询的最短间隔：查询要跨进程 SendMessageTimeout，
+    /// 而 20ms 轮询意味着键入期每秒最多 50 次。状态切换（Shift）到符号更新允许 ≤40ms 的示意延迟，
+    /// 因此按窗口 + 时间封顶，其余轮次复用上次结果。</summary>
+    private const long ImeQueryMinIntervalMs = 40;
+
+    private static IntPtr _imeCacheWnd;
+    private static long _imeCacheAt;
+    private static InputState _imeCacheState;
+
     public static InputState Detect(IntPtr fgWindow)
     {
         // 1) 大写锁定优先。
@@ -39,17 +48,31 @@ internal static class StateDetector
         if (primary == LangKorean) return InputState.Korean;
         if (primary != LangChinese) return InputState.EnglishKeyboard;
 
-        // 3) 中文布局：查询 IME 状态
-        if (fgWindow != IntPtr.Zero)
-        {
-            int? openStatus = QueryIme(fgWindow, IMC_GETOPENSTATUS);
-            if (openStatus.HasValue)
-                return openStatus.Value != 0 ? InputState.Chinese : InputState.English;
+        // 3) 中文布局：查询 IME 状态（同窗口 40ms 内复用上次结果，见 ImeQueryMinIntervalMs）
+        if (fgWindow == IntPtr.Zero)
+            return InputState.English;
 
-            int? conversion = QueryIme(fgWindow, IMC_GETCONVERSIONMODE);
-            if (conversion.HasValue)
-                return (conversion.Value & 0x1) != 0 ? InputState.Chinese : InputState.English;
-        }
+        long now = Environment.TickCount64;
+        if (fgWindow == _imeCacheWnd && now - _imeCacheAt < ImeQueryMinIntervalMs)
+            return _imeCacheState;
+
+        InputState state = QueryChineseState(fgWindow);
+        _imeCacheWnd = fgWindow;
+        _imeCacheAt = now;
+        _imeCacheState = state;
+        return state;
+    }
+
+    /// <summary>中文布局下的实际查询：先读 IME 打开状态，失败再读转换码。</summary>
+    private static InputState QueryChineseState(IntPtr fgWindow)
+    {
+        int? openStatus = QueryIme(fgWindow, IMC_GETOPENSTATUS);
+        if (openStatus.HasValue)
+            return openStatus.Value != 0 ? InputState.Chinese : InputState.English;
+
+        int? conversion = QueryIme(fgWindow, IMC_GETCONVERSIONMODE);
+        if (conversion.HasValue)
+            return (conversion.Value & 0x1) != 0 ? InputState.Chinese : InputState.English;
 
         return InputState.English;
     }

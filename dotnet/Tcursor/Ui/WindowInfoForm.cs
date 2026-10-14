@@ -20,6 +20,7 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly MacField _path = MakeField();
     private readonly Label _status = new() { AutoSize = true, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
     private readonly MacButton _addButton = new(accent: true) { Text = "添加为白名单规则(&A)", Width = 168, Height = 32, Enabled = false };
+    private readonly MacButton _copyButton = new() { Text = "复制进程名(&C)", Width = 130, Height = 32, Enabled = false };   // 无信息时可点却无动作 = 假按钮：与「添加」一致地先禁用
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
     private const int PathCacheTtlMs = 3000;   // 进程路径缓存：MainModule 是跨进程模块查询，面板存活期间最贵的一项
 
@@ -91,12 +92,11 @@ internal sealed class WindowInfoForm : MacDialogForm
             Margin = new Padding(3, 10, 3, 0),
         };
         _addButton.Click += (_, _) => AddRuleFromCurrent();
-        var copy = UiTheme.Button("复制进程名(&C)", width: 130);
-        copy.Click += (_, _) => CopyProcessName();
+        _copyButton.Click += (_, _) => CopyProcessName();
         var close = UiTheme.Button("关闭(&X)", width: 96);
         close.Click += (_, _) => Close();
         buttons.Controls.Add(_addButton);
-        buttons.Controls.Add(copy);
+        buttons.Controls.Add(_copyButton);
         buttons.Controls.Add(close);
 
         table.RowCount = row + 1;
@@ -191,6 +191,7 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             _lastProcess = info.Process;
             _addButton.Enabled = true;
+            _copyButton.Enabled = true;
         }
     }
 

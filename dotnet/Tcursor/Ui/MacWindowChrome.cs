@@ -81,16 +81,19 @@ internal class MacDialogForm : Form
         using (var pen = new Pen(p.HeaderLine, Math.Max(1f, s)))
             g.DrawLine(pen, 0, hh - 1, ClientSize.Width, hh - 1);
 
-        // 红绿灯（红=关闭；黄/绿当前为固定尺寸对话框，呈禁用态颜色）
+        // 红绿灯（红=关闭；黄/绿当前为固定尺寸对话框，呈禁用态——保留色相、混入窗口底色的暗调，
+        // 只有红灯是活的，与 macOS 对不可用交通灯的处理一致）
         float d = 12f * s;
         float gap = 8f * s;
         float x = 16f * s;
         float cy = hh / 2f;
         DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d), active ? p.TrafficRed : p.TrafficInactive, active && _redHover);
         x += d + gap;
-        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d), active ? p.TrafficYellow : p.TrafficInactive, false);
+        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
+            active ? DimTraffic(p.TrafficYellow, p.WindowBg) : p.TrafficInactive, false);
         x += d + gap;
-        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d), active ? p.TrafficGreen : p.TrafficInactive, false);
+        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
+            active ? DimTraffic(p.TrafficGreen, p.WindowBg) : p.TrafficInactive, false);
 
         // 居中标题
         TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, ClientSize.Width, hh),
@@ -109,6 +112,14 @@ internal class MacDialogForm : Form
         g.DrawLine(pen, rect.X + m, rect.Y + m, rect.Right - m, rect.Bottom - m);
         g.DrawLine(pen, rect.Right - m, rect.Y + m, rect.X + m, rect.Bottom - m);
     }
+
+    /// <summary>把交通灯颜色按 macOS「禁用」观感压暗：保留色相，约向窗口底色混合 45%。</summary>
+    private static Color DimTraffic(Color color, Color surface)
+        => Color.FromArgb(
+            (color.A + surface.A) / 2,
+            (color.R * 55 + surface.R * 45) / 100,
+            (color.G * 55 + surface.G * 45) / 100,
+            (color.B * 55 + surface.B * 45) / 100);
 
     protected override void OnMouseDown(MouseEventArgs e)
     {

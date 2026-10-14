@@ -10,6 +10,18 @@ internal static class MacDraw
     public static GraphicsPath RoundedPath(RectangleF rect, float radius)
         => Render.SymbolRenderer.SmoothRectPath(rect.X, rect.Y, rect.Width, rect.Height, radius, 0.6f);
 
+    /// <summary>键盘焦点环（macOS 观感）：围绕给定形状画一圈强调色，与形状之间留出窄间隙。
+    /// 仅在 ShowFocusCues（用户正用键盘导航）时调用——鼠标点击聚焦不显示，与 macOS 一致。</summary>
+    public static void DrawFocusRing(Graphics g, RectangleF shape, float radius, float scale, Color? color = null)
+    {
+        float gap = Math.Max(1f, 1f * scale);
+        float w = Math.Max(1.5f, 1.8f * scale);
+        var outer = RectangleF.Inflate(shape, gap + w / 2f, gap + w / 2f);
+        using var path = RoundedPath(outer, radius + gap + w / 2f);
+        using var pen = new Pen(color ?? UiTheme.Accent, w);
+        g.DrawPath(pen, path);
+    }
+
     public static void FillSurface(Graphics g, Control c)
     {
         using var brush = new SolidBrush(c.BackColor);
@@ -121,6 +133,19 @@ internal sealed class MacButton : Button
                     : UiTheme.Text;
         TextRenderer.DrawText(g, Text, Font, ClientRectangle, textColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        // 键盘焦点环（内描边；只在键盘导航时出现）。主按钮/色块按钮上取白色，其余取强调色。
+        if (Focused && ShowFocusCues)
+        {
+            float ringW = Math.Max(1.5f, UiTheme.DpiF(this, 1.8f));
+            var inner = RectangleF.Inflate(rect, -(penW + ringW), -(penW + ringW));
+            if (inner.Width > 2 && inner.Height > 2)
+            {
+                using var ringPath = MacDraw.RoundedPath(inner, Math.Max(2f, UiTheme.DpiF(this, 8f) - ringW));
+                using var ringPen = new Pen(Accent || _swatch.HasValue ? Color.FromArgb(235, 255, 255, 255) : UiTheme.Accent, ringW);
+                g.DrawPath(ringPen, ringPath);
+            }
+        }
     }
 
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -128,6 +153,8 @@ internal sealed class MacButton : Button
     protected override void OnMouseDown(MouseEventArgs mevent) { _down = true; Invalidate(); base.OnMouseDown(mevent); }
     protected override void OnMouseUp(MouseEventArgs mevent) { _down = false; Invalidate(); base.OnMouseUp(mevent); }
     protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 }
 
 /// <summary>macOS 风格单选：圆点 + 文本（随主题深浅色）</summary>
@@ -155,7 +182,7 @@ internal sealed class MacRadio : RadioButton
 
         float s = UiTheme.DpiScale(this);
         int cy = Height / 2;
-        var circle = new RectangleF(1.5f * s, cy - 9f * s, 18f * s, 18f * s);
+        var circle = new RectangleF(3f * s, cy - 9f * s, 18f * s, 18f * s);   // x=3s：给键盘焦点环留出边距
         using (var path = new GraphicsPath())
         {
             path.AddEllipse(circle);
@@ -175,6 +202,12 @@ internal sealed class MacRadio : RadioButton
             }
         }
 
+        if (Focused && ShowFocusCues)
+        {
+            using var ringPen = new Pen(UiTheme.Accent, Math.Max(1.5f, 1.8f * s));
+            g.DrawEllipse(ringPen, RectangleF.Inflate(circle, 2f * s, 2f * s));
+        }
+
         int textX = (int)Math.Round(25f * s);
         TextRenderer.DrawText(g, Text, Font, new Rectangle(textX, 0, Width - textX, Height),
             Enabled ? UiTheme.Text : UiTheme.Dim,
@@ -182,6 +215,8 @@ internal sealed class MacRadio : RadioButton
     }
 
     protected override void OnCheckedChanged(EventArgs e) { Invalidate(); base.OnCheckedChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 }
 
 /// <summary>macOS 风格复选框：圆角方框 + 白色对勾（随主题深浅色）</summary>
@@ -209,8 +244,10 @@ internal sealed class MacCheck : CheckBox
 
         float s = UiTheme.DpiScale(this);
         int cy = Height / 2;
-        var box = new RectangleF(1.5f * s, cy - 9f * s, 18f * s, 18f * s);
+        var box = new RectangleF(3f * s, cy - 9f * s, 18f * s, 18f * s);   // x=3s：给键盘焦点环留出边距
         MacDraw.DrawCheckBox(g, box, Checked, Enabled, BackColor);   // 与规则列表的自绘复选框共用同一几何
+        if (Focused && ShowFocusCues)
+            MacDraw.DrawFocusRing(g, box, 5f * s, s);
 
         int textX = (int)Math.Round(25f * s);
         TextRenderer.DrawText(g, Text, Font, new Rectangle(textX, 0, Width - textX, Height),
@@ -219,13 +256,22 @@ internal sealed class MacCheck : CheckBox
     }
 
     protected override void OnCheckedChanged(EventArgs e) { Invalidate(); base.OnCheckedChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 }
 
-/// <summary>macOS 风格开关（药丸 + 圆钮，随主题深浅色）</summary>
+/// <summary>macOS 风格开关（药丸 + 圆钮，随主题深浅色；旋钮带 120ms 缓动）</summary>
 internal sealed class MacSwitch : CheckBox
 {
     private const int TrackW = 42;   // 设计像素（96 DPI 基线）
     private const int TrackH = 24;
+    private const int AnimDurationMs = 120;
+
+    private readonly System.Windows.Forms.Timer _anim = new() { Interval = 15 };
+    private float _knobT;              // 0=关 1=开（动画中为插值）
+    private float _animFrom;
+    private float _animTo;
+    private long _animAt;
 
     private int TrackWpx => UiTheme.Dpi(this, TrackW);
     private int TrackHpx => UiTheme.Dpi(this, TrackH);
@@ -236,6 +282,7 @@ internal sealed class MacSwitch : CheckBox
         AutoSize = true;
         BackColor = UiTheme.WindowBg;
         Font = UiTheme.Font;
+        _anim.Tick += (_, _) => AnimTick();
     }
 
     public override Size GetPreferredSize(Size proposedSize)
@@ -267,7 +314,7 @@ internal sealed class MacSwitch : CheckBox
         }
 
         float knobD = trackH - 4f * s;
-        float knobX = Checked ? track.Right - knobD - 2f * s : track.X + 2f * s;
+        float knobX = track.X + 2f * s + _knobT * (trackW - knobD - 4f * s);   // 两端 = 关/开位置，动画中取插值
         using (var knob = new GraphicsPath())
         {
             knob.AddEllipse(knobX, track.Y + 2f * s, knobD, knobD);
@@ -276,6 +323,9 @@ internal sealed class MacSwitch : CheckBox
             using var pen = new Pen(Color.FromArgb(28, 0, 0, 0), Math.Max(1f, s));
             g.DrawPath(pen, knob);
         }
+
+        if (Focused && ShowFocusCues)
+            MacDraw.DrawFocusRing(g, track, trackH / 2f, s);
 
         if (!string.IsNullOrEmpty(Text))
         {
@@ -286,7 +336,55 @@ internal sealed class MacSwitch : CheckBox
         }
     }
 
-    protected override void OnCheckedChanged(EventArgs e) { Invalidate(); base.OnCheckedChanged(e); }
+    protected override void OnCheckedChanged(EventArgs e)
+    {
+        StartAnim(Checked ? 1f : 0f);
+        Invalidate();
+        base.OnCheckedChanged(e);
+    }
+
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    /// <summary>旋钮滑动动画（120ms ease-out）。程序化赋值（表单载入值）或系统关闭界面动效时直接落位，
+    /// 避免打开设置窗时一排开关集体“自演”。</summary>
+    private void StartAnim(float target)
+    {
+        bool animate = IsHandleCreated && Visible && SystemInformation.UIEffectsEnabled;
+        _anim.Stop();
+        _animFrom = _knobT;
+        _animTo = target;
+        if (!animate || Math.Abs(_knobT - target) < 0.01f)
+        {
+            _knobT = target;
+            return;
+        }
+        _animAt = Environment.TickCount64;
+        _anim.Start();
+    }
+
+    private void AnimTick()
+    {
+        float t = Math.Clamp((Environment.TickCount64 - _animAt) / (float)AnimDurationMs, 0f, 1f);
+        float eased = 1f - (1f - t) * (1f - t) * (1f - t);   // ease-out cubic
+        _knobT = _animFrom + (_animTo - _animFrom) * eased;
+        if (t >= 1f)
+        {
+            _knobT = _animTo;
+            _anim.Stop();
+        }
+        Invalidate();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _anim.Stop();
+            _anim.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }
 
 /// <summary>macOS 风格滑杆（细轨 + 圆形滑块，支持拖动/点击；随主题深浅色）</summary>
@@ -465,7 +563,12 @@ internal sealed class MacField : Control
             ForeColor = UiTheme.Text,
             Font = UiTheme.Font,
         };
-        _edit.GotFocus += (_, _) => Invalidate();
+        _edit.GotFocus += (_, _) =>
+        {
+            if (readOnly)
+                _edit.SelectAll();   // 只读信息字段：键盘聚焦即全选，便于整值复制（鼠标点击仍按落点定位）
+            Invalidate();
+        };
         _edit.LostFocus += (_, _) => Invalidate();
         Controls.Add(_edit);
         Height = 28;   // 放在 _edit 就绪之后：改 Height 会立刻触发 OnLayout → LayoutEdit
@@ -550,6 +653,7 @@ internal sealed class MacNumberField : Control
     private bool _hoverUp;
     private bool _hoverDown;
     private bool _pressing;
+    private float _stepWd;   // 有效步进器宽度（像素）：LayoutEdit 计算并缓存，命中/绘制共用
 
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public decimal Minimum { get; set; }
@@ -664,10 +768,14 @@ internal sealed class MacNumberField : Control
         }
     }
 
+    /// <summary>有效步进器宽度（像素）。命中测试与绘制必须用同一宽度：窄控件回退时步进器被收窄，
+    /// 若命中区仍按设计宽度算，点击文本区右侧会被误判为点步进。</summary>
+    private float StepWidth => _stepWd > 0 ? _stepWd : StepperDesignW * UiTheme.DpiScale(this);
+
     private bool InStepper(Point p, out bool up)
     {
         up = p.Y < Height / 2f;
-        return p.X >= Width - StepperDesignW * UiTheme.DpiScale(this);
+        return p.X >= Width - StepWidth;
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -733,6 +841,7 @@ internal sealed class MacNumberField : Control
         int stepW = (int)Math.Round(StepperDesignW * s);
         if (Width < pad * 2 + stepW + 4 * (int)s)   // 控件偏窄（如框架未随 DPI 放大 Width）：给文本至少留 3/4 宽
             stepW = Math.Max((int)Math.Round(6f * s), (Width - pad * 2) / 4);
+        _stepWd = stepW;   // 命中测试与绘制共用（见 StepWidth）
         int h = Math.Min(_edit.PreferredHeight, Math.Max(10, Height - 2));
         _edit.SetBounds(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2 - stepW), h);
     }
@@ -762,7 +871,7 @@ internal sealed class MacNumberField : Control
         float s = UiTheme.DpiScale(this);
         float penW = Math.Max(1f, 1f * s);
         var rect = new RectangleF(penW / 2f, penW / 2f, Width - penW, Height - penW);
-        float stepperW = StepperDesignW * s;
+        float stepperW = StepWidth;
         float radius = 6f * s;
 
         using var path = MacDraw.RoundedPath(rect, radius);
