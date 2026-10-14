@@ -81,6 +81,11 @@ public sealed class AppConfig
     public int ScreenOffsetY { get; set; } = 0;
     public bool LogEnabled { get; set; } = false;
 
+    /// <summary>启动后自动检查更新（每日最多一次；检查结果只提示，不自动安装）</summary>
+    public bool UpdateAutoCheck { get; set; } = true;
+    /// <summary>上次自动检查更新的时间（UTC ticks；避免每次启动都联网）</summary>
+    public long UpdateLastCheckUtc { get; set; } = 0;
+
     /// <summary>形状圆角（Apple 连续曲率）：0 直角 / 1 小 16% / 2 中 25% / 3 大 33%（默认）/ 4 特大 40% / 5 超大 45% / 6 胶囊 50%</summary>
     public int ShapeCornerPreference { get; set; } = 3;
     /// <summary>样式版本：0 = v0.4 及以前，1 = v0.5，2 = v0.6 起（macOS 圆角档位 + 边框样式），3 = v0.6.3 起（偏移收敛为全局），4 = v0.7.2 起（圆角档位扩展：特大/超大，胶囊 4→6）</summary>

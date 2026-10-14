@@ -18,10 +18,14 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Icon _iconPaused;
     private readonly ToolStripMenuItem _toggleItem;
     private readonly ToolStripMenuItem _startupItem;
+    private readonly ToolStripMenuItem _updateItem;
+    private readonly SynchronizationContext _sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
     private WindowInfoForm? _windowInfoForm;
     private readonly ContextMenuStrip _menu;
     private AppConfig _config;
     private bool _paused;
+    private bool _updateBusy;
+    private UpdateInfo? _pendingUpdate;   // 自动检查发现的可用更新（供气泡点击/手动检查复用）
 
     public TrayApp()
     {
@@ -54,6 +58,8 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add("重新加载配置(&L)", null, (_, _) => ReloadConfig());
         menu.Items.Add(_startupItem);
         menu.Items.Add(new ToolStripSeparator());
+        _updateItem = new ToolStripMenuItem("检查更新(&U)…", null, (_, _) => CheckForUpdates(manual: true));
+        menu.Items.Add(_updateItem);
         menu.Items.Add("关于(&B)…", null, (_, _) => ShowAbout());
         menu.Items.Add("退出(&X)", null, (_, _) => ExitApp());
 
@@ -67,10 +73,129 @@ internal sealed class TrayApp : ApplicationContext
             ContextMenuStrip = menu,
         };
         _tray.DoubleClick += (_, _) => TogglePause();
+        _tray.BalloonTipClicked += (_, _) => OfferPendingUpdate();
         UiTheme.Changed += OnThemeChanged;
 
         _controller.Start();
         _watcher.Start();
+
+        if (_config.UpdateAutoCheck)
+            Task.Run(AutoCheckForUpdates);   // 启动后台检查（每日一次；不阻塞启动）
+    }
+
+    // ---------------- 检查更新 ----------------
+
+    /// <summary>启动时的后台检查：距上次检查不足 20 小时则跳过；发现新版本只提示、不自动安装。</summary>
+    private void AutoCheckForUpdates()
+    {
+        try
+        {
+            if (DateTime.UtcNow.Ticks - _config.UpdateLastCheckUtc < TimeSpan.FromHours(20).Ticks)
+                return;
+            UpdateInfo? info = UpdateService.Check(out string error);
+            if (info is null)
+            {
+                Log.Info("自动检查更新失败：" + error);
+                return;
+            }
+            _sync.Post(_ =>
+            {
+                _config.UpdateLastCheckUtc = DateTime.UtcNow.Ticks;
+                ConfigStore.Save(_config);
+                if (!info.Newer)
+                    return;
+                _pendingUpdate = info;
+                _tray.ShowBalloonTip(10000, "Tcursor 有新版本",
+                    $"发现 {info.Version}（当前 {AppInfo.Version}）——点击此处更新", ToolTipIcon.Info);
+            }, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);   // 自动检查失败静默（只记日志）
+        }
+    }
+
+    /// <summary>检查更新（手动 = 有明确反馈；自动 = 静默）。</summary>
+    private void CheckForUpdates(bool manual)
+    {
+        if (_updateBusy)
+            return;
+        _updateBusy = true;
+        _updateItem.Enabled = false;
+        _updateItem.Text = "正在检查更新…";
+        Task.Run(() =>
+        {
+            UpdateInfo? info = UpdateService.Check(out string error);
+            _sync.Post(_ =>
+            {
+                _updateBusy = false;
+                _updateItem.Enabled = true;
+                _updateItem.Text = "检查更新(&U)…";
+                OnChecked(info, error, manual);
+            }, null);
+        });
+    }
+
+    private void OnChecked(UpdateInfo? info, string error, bool manual)
+    {
+        if (info is null)
+        {
+            if (manual)
+                MacDialog.Alert(null, "检查更新失败：" + error, "检查更新");
+            return;
+        }
+        _config.UpdateLastCheckUtc = DateTime.UtcNow.Ticks;
+        ConfigStore.Save(_config);
+        if (!info.Newer)
+        {
+            if (manual)
+                MacDialog.Alert(null, $"当前已是最新版本（{AppInfo.Version}）。", "检查更新");
+            return;
+        }
+        _pendingUpdate = info;
+        OfferPendingUpdate();
+    }
+
+    /// <summary>提示并执行更新：确认 → 下载校验（进度）→ 启动更新器 → 退出主进程让其完成替换与重启。</summary>
+    private void OfferPendingUpdate()
+    {
+        UpdateInfo? info = _pendingUpdate;
+        if (info is null)
+            return;
+        if (!MacDialog.Confirm(null,
+                $"发现新版本 {info.Version}（当前 {AppInfo.Version}）。" + Environment.NewLine + Environment.NewLine +
+                "立即下载并更新？更新完成后程序会自动重启。",
+                "发现新版本"))
+            return;
+
+        if (!UpdateService.CanSelfUpdate(out string why))
+        {
+            bool open = MacDialog.Confirm(null, why + Environment.NewLine + Environment.NewLine +
+                "是否现在打开发布页，手动下载后覆盖当前目录？", "无法自动更新");
+            if (open)
+                ShellOpen(UpdateService.ReleasesPage);
+            return;
+        }
+
+        using var progress = new UpdateProgressForm(info);
+        if (progress.ShowDialog() != DialogResult.OK)
+        {
+            if (!progress.Cancelled)
+                MacDialog.Alert(null, "更新未完成：" + (progress.Error.Length > 0 ? progress.Error : "未知原因"), "更新");
+            return;
+        }
+
+        if (!UpdateService.SpawnUpdater(progress.PackagePath!, out string error))
+        {
+            MacDialog.Alert(null,
+                "无法启动更新器：" + error + Environment.NewLine + Environment.NewLine +
+                "已下载的更新包：" + Environment.NewLine + progress.PackagePath + Environment.NewLine + Environment.NewLine +
+                "可手动解压覆盖当前目录。", "更新失败");
+            return;
+        }
+
+        _tray.Visible = false;
+        ExitThread();   // 退出主进程：更新器接管替换与重启
     }
 
     private void TogglePause()
@@ -180,7 +305,8 @@ internal sealed class TrayApp : ApplicationContext
     private void ShowAbout()
     {
         using var form = new AboutForm();
-        form.ShowDialog();
+        if (form.ShowDialog() == DialogResult.Abort)   // 「检查更新…」按钮
+            CheckForUpdates(manual: true);
     }
 
     private void OnThemeChanged() => _menu.Invalidate();

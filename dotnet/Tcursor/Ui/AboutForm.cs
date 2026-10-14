@@ -69,6 +69,12 @@ internal sealed class AboutForm : MacDialogForm
 
         var ok = UiTheme.Button("确定", accent: true, width: 96);
         ok.DialogResult = DialogResult.OK;
+        var check = UiTheme.Button("检查更新…", width: 118);
+        check.Click += (_, _) =>
+        {
+            DialogResult = DialogResult.Abort;   // 由调用方（托盘应用）接续执行检查更新
+            Close();
+        };
         var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
@@ -77,6 +83,7 @@ internal sealed class AboutForm : MacDialogForm
             Dock = DockStyle.Fill,
         };
         buttons.Controls.Add(ok);
+        buttons.Controls.Add(check);
         AcceptButton = ok;
         CancelButton = ok;
 

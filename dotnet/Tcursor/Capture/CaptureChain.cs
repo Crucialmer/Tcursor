@@ -38,10 +38,6 @@ internal sealed class CaptureChain : IDisposable
     /// <summary>最近一次成功使用的后端名（用于自检/诊断）</summary>
     public string? LastUsedMode { get; private set; }
 
-    /// <summary>最近一次失败是否为「瞬态失败」：有后端耗时 ≥ SlowFailureMs（超时/目标繁忙）才失败，
-    /// 而非各后端一致地快速回答「此处无光标」。调用方据此区分“闪烁”与“确实该隐藏”。</summary>
-    public bool LastFailureWasTransient { get; private set; }
-
     public bool TryCapture(uint pid, IntPtr hwnd, string chainSpec, out CaretRect rect)
         => TryCapture(pid, hwnd, chainSpec, out rect, out _);
 
@@ -89,7 +85,6 @@ internal sealed class CaptureChain : IDisposable
         }
 
         transientFailure = slow;
-        LastFailureWasTransient = slow;
         return false;
     }
 

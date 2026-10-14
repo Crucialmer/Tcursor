@@ -36,6 +36,8 @@ internal static class Selftest
             sb.AppendLine("ForegroundWindow: 0x" + foreground.ToString("X"));
             sb.AppendLine("IdleMs: " + SysInfo.GetIdleMs());
             sb.AppendLine("State(foreground): " + StateDetector.Detect(foreground));
+            sb.AppendLine("Update: 当前版本 " + AppInfo.Version + "；更新源 " + UpdateService.Feed
+                          + "；自检不联网（用 --check-update <文件> 做真实检查）");
 
             // 渲染配置中六种状态的符号
             AppConfig config = ConfigStore.Load();
