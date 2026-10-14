@@ -2,15 +2,24 @@ using Tcursor.Core;
 
 namespace Tcursor.Ui;
 
-/// <summary>「关于」对话框（macOS 风格窗口 + 卡片，随主题深浅色；替代系统 MessageBox）</summary>
+/// <summary>「关于」对话框（macOS 版式：应用图标 + 居中名称/版本 + 说明 + 许可；随主题深浅色）</summary>
 internal sealed class AboutForm : MacDialogForm
 {
+    private readonly PictureBox _icon = new()
+    {
+        SizeMode = PictureBoxSizeMode.Zoom,
+        BackColor = UiTheme.WindowBg,
+        Anchor = AnchorStyles.None,
+        Margin = new Padding(0, 2, 0, 12),
+    };
+    private Bitmap? _iconBitmap;
+
     public AboutForm()
     {
         SuspendLayout();
         Text = "关于 Tcursor";
-        StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(460, 300 + MacDialogForm.HeaderDesignPx);
+        StartPosition = FormStartPosition.Manual;   // 位置在 Load 里贴右下角（托盘区）
+        ClientSize = new Size(420, 360 + MacDialogForm.HeaderDesignPx);
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -18,54 +27,65 @@ internal sealed class AboutForm : MacDialogForm
         MinimizeBox = false;
         MaximizeBox = false;
 
-        var title = new Label
+        var name = new Label
         {
             Text = "Tcursor",
             AutoSize = true,
-            Font = UiTheme.FontBold,
+            Font = UiTheme.FontTitle,
             ForeColor = UiTheme.Text,
-            BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 2, 0, 0),
+            BackColor = UiTheme.WindowBg,
+            Anchor = AnchorStyles.None,
+            Margin = new Padding(0, 0, 0, 4),
         };
         var version = new Label
         {
             Text = "版本 " + AppInfo.Version,
             AutoSize = true,
             ForeColor = UiTheme.Dim,
-            BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 6, 0, 0),
+            BackColor = UiTheme.WindowBg,
+            Anchor = AnchorStyles.None,
+            Margin = new Padding(0, 0, 0, 14),
         };
         var desc = new Label
         {
-            Text = "在光标旁显示输入法状态符号（中/英/大写/英键/日/韩）。\r\n" +
-                   "六种状态检测 · 白名单规则 · 窗口信息 · GUI/UIA/MSAA 捕获链。",
+            Text = "在光标旁显示输入法状态符号：" + Environment.NewLine +
+                   "中文 / 英文 / 大写 / 英文键盘 / 日文 / 韩文" + Environment.NewLine +
+                   "白名单规则 · 窗口信息 · 三种捕获链 · 静默自动更新。",
             AutoSize = true,
+            MaximumSize = new Size(340, 0),   // 限宽换行；值随 DPI 由框架缩放
+            TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = UiTheme.Text,
-            BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 16, 0, 0),
+            BackColor = UiTheme.WindowBg,
+            Anchor = AnchorStyles.None,
+            Margin = new Padding(0, 0, 0, 12),
         };
         var license = new Label
         {
-            Text = "许可：GPL-3.0；© 2026 Crucialmer；第三方组件见 THIRD-PARTY-NOTICES.txt",
+            Text = "GNU 通用公共许可证第 3 版（GPL-3.0）" + Environment.NewLine +
+                   "© 2026 Crucialmer · 第三方组件见 THIRD-PARTY-NOTICES.txt",
             AutoSize = true,
+            MaximumSize = new Size(340, 0),
+            TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = UiTheme.Dim,
-            BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 16, 0, 0),
+            BackColor = UiTheme.WindowBg,
+            Anchor = AnchorStyles.None,
+            Margin = new Padding(0),
         };
-        var body = new FlowLayoutPanel
+
+        var content = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoSize = true,
-            BackColor = UiTheme.CardBg,
+            ColumnCount = 1,
+            Padding = new Padding(16, 18, 16, 6),
+            BackColor = UiTheme.WindowBg,
         };
-        body.Controls.Add(title);
-        body.Controls.Add(version);
-        body.Controls.Add(desc);
-        body.Controls.Add(license);
-        var card = new MacCard { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(20) };
-        card.Controls.Add(body);
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        foreach (Control control in new Control[] { _icon, name, version, desc, license })
+        {
+            content.RowCount++;
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.Controls.Add(control, 0, content.RowCount - 1);
+        }
 
         var ok = UiTheme.Button("确定", accent: true, width: 96);
         ok.DialogResult = DialogResult.OK;
@@ -81,6 +101,7 @@ internal sealed class AboutForm : MacDialogForm
             Height = 44,
             Padding = new Padding(8),
             Dock = DockStyle.Fill,
+            BackColor = UiTheme.WindowBg,
         };
         buttons.Controls.Add(ok);
         buttons.Controls.Add(check);
@@ -91,11 +112,30 @@ internal sealed class AboutForm : MacDialogForm
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.Controls.Add(card, 0, 0);
+        root.Controls.Add(content, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
 
+        Load += (_, _) =>
+        {
+            int size = UiTheme.Dpi(this, 76);
+            _icon.Size = new Size(size, size);
+            _iconBitmap = TrayIconFactory.CreateBitmap(paused: false, size);
+            _icon.Image = _iconBitmap;
+            MacDialogForm.PositionBottomRight(this);   // 与其它「提示 / 信息」类窗口一致：贴托盘区
+        };
+
         ResumeLayout(false);
         PerformLayout();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _icon.Image = null;
+            _iconBitmap?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

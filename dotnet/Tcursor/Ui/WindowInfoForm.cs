@@ -13,11 +13,11 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly AppConfig _config;
     private readonly Action _applyConfig;
 
-    private readonly TextBox _process = MakeBox();
-    private readonly TextBox _rootClass = MakeBox();
-    private readonly TextBox _focusClass = MakeBox();
-    private readonly TextBox _title = MakeBox();
-    private readonly TextBox _path = MakeBox();
+    private readonly MacField _process = MakeField();
+    private readonly MacField _rootClass = MakeField();
+    private readonly MacField _focusClass = MakeField();
+    private readonly MacField _title = MakeField();
+    private readonly MacField _path = MakeField();
     private readonly Label _status = new() { AutoSize = true, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
     private readonly MacButton _addButton = new(accent: true) { Text = "添加为白名单规则(&A)", Width = 168, Height = 32, Enabled = false };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
@@ -113,7 +113,11 @@ internal sealed class WindowInfoForm : MacDialogForm
         Controls.Add(table);
 
         _timer.Tick += (_, _) => RefreshInfo();
-        Load += (_, _) => PositionBottomRight();
+        Load += (_, _) =>
+        {
+            FitHeightToContent(table);
+            MacDialogForm.PositionBottomRight(this);   // 高度调整后贴右下角（托盘区）
+        };
         Shown += (_, _) =>
         {
             RefreshInfo();
@@ -140,21 +144,20 @@ internal sealed class WindowInfoForm : MacDialogForm
         base.Dispose(disposing);
     }
 
-    private static TextBox MakeBox() => new()
+    private static MacField MakeField() => new(readOnly: true)
     {
-        ReadOnly = true,
         Dock = DockStyle.Fill,
-        BackColor = UiTheme.CardBg,
+        BackColor = UiTheme.WindowBg,   // 字段直接落在窗口底色上：圆角外的衬底与窗口一致
         Margin = new Padding(3, 4, 3, 2),
     };
 
-    private void PositionBottomRight()
+    /// <summary>窗口高度贴合内容（内容较少时不再留下大片空白）</summary>
+    private void FitHeightToContent(TableLayoutPanel content)
     {
-        var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
-        int margin = UiTheme.Dpi(this, 24);
-        Location = new Point(
-            Math.Max(area.Left, area.Right - Width - margin),
-            Math.Max(area.Top, area.Bottom - Height - margin));
+        int width = content.Width > 0 ? content.Width : UiTheme.Dpi(this, 536);
+        int contentHeight = content.GetPreferredSize(new Size(width, 0)).Height;
+        int chrome = UiTheme.Dpi(this, MacDialogForm.HeaderDesignPx);
+        ClientSize = new Size(ClientSize.Width, contentHeight + chrome);
     }
 
     private void RefreshInfo()

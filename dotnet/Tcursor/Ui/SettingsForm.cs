@@ -43,8 +43,8 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly PreviewBox _preview = new();
     private readonly MacCheck _stateOff = new() { Text = "此状态不显示", BackColor = UiTheme.CardBg };
     private readonly MacButton _colorButton = new() { Width = 96, Height = 26, BackColor = UiTheme.CardBg };   // 位于卡片内：底色随卡片，避免衬底色差
-    private readonly NumericUpDown _shapeWidth = new() { Minimum = 2, Maximum = 500, Width = 62 };
-    private readonly NumericUpDown _shapeHeight = new() { Minimum = 2, Maximum = 500, Width = 62 };
+    private readonly MacNumberField _shapeWidth = new() { Minimum = 2, Maximum = 500, Width = 62 };
+    private readonly MacNumberField _shapeHeight = new() { Minimum = 2, Maximum = 500, Width = 62 };
     private readonly MacSlider _transparency = new() { Minimum = 0, Maximum = 255, Value = 255, Width = 150, BackColor = UiTheme.CardBg };
     private readonly Label _transparencyLabel = new() { AutoSize = true, Width = 32, ForeColor = UiTheme.Text, BackColor = UiTheme.CardBg };
 
@@ -53,12 +53,12 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly MacRadio[] _edgeButtons;
 
     // 高级
-    private readonly NumericUpDown _idleStop = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 78 };
-    private readonly NumericUpDown _hideDelay = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 78 };
-    private readonly NumericUpDown _pollInterval = new() { Minimum = 5, Maximum = 200, Increment = 5, Width = 64 };
-    private readonly TextBox _chain = new() { Width = 150 };
-    private readonly NumericUpDown _offsetX = new() { Minimum = -500, Maximum = 500, Width = 58 };
-    private readonly NumericUpDown _offsetY = new() { Minimum = -500, Maximum = 500, Width = 58 };
+    private readonly MacNumberField _idleStop = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 78 };
+    private readonly MacNumberField _hideDelay = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 78 };
+    private readonly MacNumberField _pollInterval = new() { Minimum = 5, Maximum = 200, Increment = 5, Width = 64 };
+    private readonly MacField _chain = new() { Width = 150 };
+    private readonly MacNumberField _offsetX = new() { Minimum = -500, Maximum = 500, Width = 58 };
+    private readonly MacNumberField _offsetY = new() { Minimum = -500, Maximum = 500, Width = 58 };
     private readonly MacSwitch _logEnabled = new() { Text = "写入日志文件（排障用）", BackColor = UiTheme.CardBg };
     private readonly MacSwitch _updateAutoCheck = new() { Text = "启动时自动检查更新（每日一次）", BackColor = UiTheme.CardBg };
     private readonly MacSwitch _updateAutoDownload = new() { Text = "自动下载并安装更新（退出时或下次启动）", BackColor = UiTheme.CardBg };
@@ -326,6 +326,7 @@ internal sealed class SettingsForm : MacDialogForm
         base.OnDpiChangedAfterParent(e);
         ApplyDpiMetrics();
         _stateList.Invalidate();
+        UpdatePreview();   // 预览位图按新 DPI 重渲染（否则跨显示器拖动后符号显示为旧倍率、明显偏小）
     }
 
     // ---------------- 构建辅助 ----------------
@@ -569,7 +570,7 @@ internal sealed class SettingsForm : MacDialogForm
         return fallback;
     }
 
-    private static decimal ClampN(int value, NumericUpDown input)
+    private static decimal ClampN(int value, MacNumberField input)
         => Math.Clamp(value, (int)input.Minimum, (int)input.Maximum);
 }
 

@@ -19,6 +19,17 @@ internal sealed class UpdateInfo
     public bool Newer { get; init; }
 }
 
+/// <summary>安装「已就绪」更新包的结果（调用方按结果分支，勿用错误文案判断语义）</summary>
+internal enum PreparedInstallResult
+{
+    /// <summary>已交给更新器（本进程退出即可）</summary>
+    Started,
+    /// <summary>本机没有已下载就绪的更新包</summary>
+    NothingPrepared,
+    /// <summary>失败（包不完整 / 更新器启动失败），原因见 error</summary>
+    Failed,
+}
+
 /// <summary>
 /// 自动更新（检查 → 下载校验 → 应用重启）。便携单文件软件的完整更新链：
 ///
@@ -249,7 +260,8 @@ internal static class UpdateService
             response.EnsureSuccessStatusCode();
             long total = response.Content.Headers.ContentLength ?? info.Size;
 
-            string tmp = package + ".part";
+            // 临时名按下载实例唯一：避免「后台静默下载」与「手动下载」并发时在 File.Create 上互相撞锁
+            string tmp = package + "." + Guid.NewGuid().ToString("N")[..8] + ".part";
             using (Stream source = response.Content.ReadAsStream(token))
             using (var sink = File.Create(tmp))
             using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
@@ -374,6 +386,7 @@ internal static class UpdateService
             if (newExe is null)
             {
                 Log.Error("更新包内未找到 Tcursor.exe");
+                RelaunchOriginal(targetExe, restart);   // 失败也要把应用还回去
                 return 2;
             }
 
@@ -415,7 +428,25 @@ internal static class UpdateService
         catch (Exception ex)
         {
             Log.Error(ex);
+            RelaunchOriginal(targetExe, restart);   // 失败也要把应用还回去：否则「启动时安装」失败会表现为程序无声消失
             return 1;
+        }
+    }
+
+    /// <summary>替换失败时的兜底：调用方（启动时安装 / 手动立即更新）本是「交给更新器后自己退出」，
+    /// 若替换没成功就把原 exe 重新拉起来——宁可回到旧版本，也不能让程序无声消失。</summary>
+    private static void RelaunchOriginal(string targetExe, bool restart)
+    {
+        if (!restart || Environment.GetEnvironmentVariable(NoRestartEnv) is { Length: > 0 })
+            return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(targetExe) { UseShellExecute = true });
+            Log.Info("更新失败：已重新启动原版本（应用不会消失）");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
         }
     }
 
@@ -596,11 +627,16 @@ internal static class UpdateService
     public static int InstallPreparedCli(string outFile)
     {
         var payload = new Dictionary<string, object?> { ["current"] = AppInfo.Version };
-        bool ok = InstallPrepared(out string error, restart: false);
-        payload["result"] = ok ? "更新器已启动（未重启：下次启动为新版本）" : error;
-        payload["error"] = ok ? "" : error;
+        PreparedInstallResult result = InstallPrepared(out string error, restart: false);
+        payload["result"] = result == PreparedInstallResult.Started ? "更新器已启动（未重启：下次启动为新版本）" : error;
+        payload["error"] = result == PreparedInstallResult.Started ? "" : error;
         WriteResult(outFile, payload);
-        return ok ? 0 : (error.Contains("没有已下载") ? 3 : 1);
+        return result switch
+        {
+            PreparedInstallResult.Started => 0,
+            PreparedInstallResult.NothingPrepared => 3,
+            _ => 1,
+        };
     }
 
     /// <summary>把「已下载并校验通过」的状态写入清单（退出时安装不联网，只依赖它）。</summary>
@@ -646,27 +682,27 @@ internal static class UpdateService
     }
 
     /// <summary>安装「已就绪」的更新包（不联网）：<paramref name="restart"/>=false 用于退出时自动安装。
-    /// 无就绪包 / 包校验不过 / 更新器启动失败时返回 false 并给出原因。</summary>
-    public static bool InstallPrepared(out string error, bool restart = false)
+    /// 调用方按返回的结果分支（勿用错误文案判断语义）。</summary>
+    public static PreparedInstallResult InstallPrepared(out string error, bool restart = false)
     {
         error = "";
         UpdateInfo? info = ReadPrepared();
         if (info is null)
         {
             error = "没有已下载就绪的更新包";
-            return false;
+            return PreparedInstallResult.NothingPrepared;
         }
         string? package = PreparedPackage(info);
         if (package is null)
         {
             ClearPendingManifest();
             error = "更新包不完整或校验失败";
-            return false;
+            return PreparedInstallResult.Failed;
         }
         if (!SpawnUpdater(package, out error, restart))
-            return false;
+            return PreparedInstallResult.Failed;
         ClearPendingManifest();
-        return true;
+        return PreparedInstallResult.Started;
     }
 
     /// <summary>清除「已就绪」清单（交接给更新器后调用，避免重复安装）。</summary>
@@ -700,7 +736,7 @@ internal static class UpdateService
             note = $"已就绪清单版本 {info.Version} 不新于当前 {AppInfo.Version}，已清除";
             return false;
         }
-        if (!InstallPrepared(out string error, restart: true))
+        if (InstallPrepared(out string error, restart: true) != PreparedInstallResult.Started)
         {
             note = "启动时安装未进行：" + error;
             return false;

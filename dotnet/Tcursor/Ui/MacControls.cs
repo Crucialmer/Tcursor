@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Globalization;
 
 namespace Tcursor.Ui;
 
@@ -13,6 +14,39 @@ internal static class MacDraw
     {
         using var brush = new SolidBrush(c.BackColor);
         g.FillRectangle(brush, c.ClientRectangle);
+    }
+
+    /// <summary>绘制 macOS 风格复选框（圆角方框 + 白色对勾）。盒宽即尺寸，内部几何按比例缩放；
+    /// surface = 未勾选时方框内的填充面（与所在表面一致，避免深色下出现亮块）。</summary>
+    public static void DrawCheckBox(Graphics g, RectangleF box, bool isChecked, bool enabled, Color surface)
+    {
+        float u = box.Width / 18f;   // 以 18 设计像素方盒为基准的单位
+        using var path = RoundedPath(box, 5f * u);
+        if (isChecked)
+        {
+            using var brush = new SolidBrush(enabled ? UiTheme.Accent : UiTheme.Dim);
+            g.FillPath(brush, path);
+            using var pen = new Pen(Color.White, Math.Max(1.4f, 2.2f * u))
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round,
+            };
+            var pts = new[]
+            {
+                new PointF(box.X + 4.6f * u, box.Y + 9.6f * u),
+                new PointF(box.X + 7.6f * u, box.Y + 12.6f * u),
+                new PointF(box.X + 13.6f * u, box.Y + 5.6f * u),
+            };
+            g.DrawLines(pen, pts);
+        }
+        else
+        {
+            using var brush = new SolidBrush(surface);
+            g.FillPath(brush, path);
+            using var pen = new Pen(UiTheme.ControlBorder, Math.Max(1f, 1.2f * u));
+            g.DrawPath(pen, path);
+        }
     }
 }
 
@@ -176,34 +210,7 @@ internal sealed class MacCheck : CheckBox
         float s = UiTheme.DpiScale(this);
         int cy = Height / 2;
         var box = new RectangleF(1.5f * s, cy - 9f * s, 18f * s, 18f * s);
-        using (var path = MacDraw.RoundedPath(box, 5f * s))
-        {
-            if (Checked)
-            {
-                using var brush = new SolidBrush(Enabled ? UiTheme.Accent : UiTheme.Dim);
-                g.FillPath(brush, path);
-                using var pen = new Pen(Color.White, Math.Max(1.5f, 2.2f * s))
-                {
-                    StartCap = LineCap.Round,
-                    EndCap = LineCap.Round,
-                    LineJoin = LineJoin.Round,
-                };
-                var pts = new[]
-                {
-                    new PointF(box.X + 4.6f * s, box.Y + 9.6f * s),
-                    new PointF(box.X + 7.6f * s, box.Y + 12.6f * s),
-                    new PointF(box.X + 13.6f * s, box.Y + 5.6f * s),
-                };
-                g.DrawLines(pen, pts);
-            }
-            else
-            {
-                using var brush = new SolidBrush(BackColor);   // 未选中面 = 所在表面色，随主题
-                g.FillPath(brush, path);
-                using var pen = new Pen(UiTheme.ControlBorder, Math.Max(1f, 1.2f * s));
-                g.DrawPath(pen, path);
-            }
-        }
+        MacDraw.DrawCheckBox(g, box, Checked, Enabled, BackColor);   // 与规则列表的自绘复选框共用同一几何
 
         int textX = (int)Math.Round(25f * s);
         TextRenderer.DrawText(g, Text, Font, new Rectangle(textX, 0, Width - textX, Height),
@@ -436,4 +443,380 @@ internal sealed class MacCard : Panel
         }
     }
 
+}
+
+/// <summary>macOS 风格文本输入框：圆角细边框 + 内嵌真实文本框（选择/复制/输入法/剪贴板全部继承系统行为）。
+/// 只读模式用于信息展示（仍可选中复制）；聚焦时边框转强调色。</summary>
+internal sealed class MacField : Control
+{
+    private readonly TextBox _edit;
+
+    public MacField(bool readOnly = false)
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.Selectable, false);
+        TabStop = false;
+        BackColor = UiTheme.CardBg;
+        _edit = new TextBox
+        {
+            BorderStyle = BorderStyle.None,
+            ReadOnly = readOnly,
+            BackColor = UiTheme.CardBg,
+            ForeColor = UiTheme.Text,
+            Font = UiTheme.Font,
+        };
+        _edit.GotFocus += (_, _) => Invalidate();
+        _edit.LostFocus += (_, _) => Invalidate();
+        Controls.Add(_edit);
+        Height = 28;   // 放在 _edit 就绪之后：改 Height 会立刻触发 OnLayout → LayoutEdit
+        LayoutEdit();
+    }
+
+    /// <summary>内嵌文本框（调用方读取文本时可直接用本控件的 Text 转发）</summary>
+    public TextBox Inner => _edit;
+
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public override string Text
+    {
+        get => _edit.Text;
+        set => _edit.Text = value ?? string.Empty;
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        base.OnLayout(levent);
+        LayoutEdit();
+    }
+
+    /// <summary>高 DPI 下框架缩放本控件时可能只改 Width/Height 而不触发 OnLayout ——
+    /// 内嵌文本框会停在旧尺寸（实测 200% 下仅 20px 宽 → 数值被裁）。尺寸变化即重排。</summary>
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        LayoutEdit();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        LayoutEdit();
+        Invalidate();
+    }
+
+    private void LayoutEdit()
+    {
+        float s = UiTheme.DpiScale(this);
+        int pad = (int)Math.Round(8f * s);
+        int h = Math.Min(_edit.PreferredHeight, Math.Max(10, Height - 2));
+        _edit.SetBounds(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2), h);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        LayoutEdit();   // 布局自愈（幂等）：兜住框架缩放未通知的极端情形
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        MacDraw.FillSurface(g, this);
+
+        float s = UiTheme.DpiScale(this);
+        float penW = Math.Max(1f, 1f * s);
+        var rect = new RectangleF(penW / 2f, penW / 2f, Width - penW, Height - penW);
+        using var path = MacDraw.RoundedPath(rect, 6f * s);
+        using (var fill = new SolidBrush(UiTheme.CardBg))
+            g.FillPath(fill, path);
+        using var border = new Pen(_edit.Focused ? UiTheme.Accent : UiTheme.ControlBorder,
+            _edit.Focused ? Math.Max(1f, 1.4f * s) : penW);
+        g.DrawPath(border, path);
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        _edit.Enabled = Enabled;
+        Invalidate();
+        base.OnEnabledChanged(e);
+    }
+}
+
+/// <summary>macOS 风格数字输入框：圆角细边框 + 右侧步进器（上下箭头）。内嵌真实文本框（键入/选择/剪贴板/输入法全部继承系统行为）；
+/// 支持 Enter 提交、Esc 还原、上下方向键步进、按住步进器连步。随主题深浅色。</summary>
+internal sealed class MacNumberField : Control
+{
+    private const float StepperDesignW = 18f;   // 步进器宽度（设计像素，96 DPI 基线）
+
+    private readonly TextBox _edit;
+    private readonly System.Windows.Forms.Timer _repeat = new() { Interval = 400 };
+    private decimal _value;
+    private int _repeatDir;
+    private bool _hoverUp;
+    private bool _hoverDown;
+    private bool _pressing;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public decimal Minimum { get; set; }
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public decimal Maximum { get; set; } = 100m;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public decimal Increment { get; set; } = 1m;
+
+    public event EventHandler? ValueChanged;
+
+    public MacNumberField()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.Selectable, false);
+        TabStop = false;
+        BackColor = UiTheme.CardBg;
+        _edit = new TextBox
+        {
+            BorderStyle = BorderStyle.None,
+            TextAlign = HorizontalAlignment.Right,
+            BackColor = UiTheme.CardBg,
+            ForeColor = UiTheme.Text,
+            Font = UiTheme.Font,
+            Text = "0",
+        };
+        _edit.GotFocus += (_, _) => { _edit.SelectAll(); Invalidate(); };
+        _edit.LostFocus += (_, _) => { Commit(); Invalidate(); };
+        _edit.KeyDown += OnEditKeyDown;
+        Controls.Add(_edit);
+        _repeat.Tick += (_, _) => Step(_repeatDir);
+        Height = 26;   // 放在 _edit 就绪之后：改 Height 会立刻触发 OnLayout → LayoutEdit
+        LayoutEdit();
+    }
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public decimal Value
+    {
+        get => _value;
+        set
+        {
+            decimal v = Math.Clamp(value, Minimum, Maximum);
+            bool changed = v != _value;
+            _value = v;
+            if (!_edit.Focused)
+                _edit.Text = Format(v);
+            if (changed)
+                ValueChanged?.Invoke(this, EventArgs.Empty);
+            Invalidate();
+        }
+    }
+
+    private static string Format(decimal v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>把键入内容提交为数值（非法输入还原为当前值）</summary>
+    private void Commit()
+    {
+        string text = _edit.Text.Trim();
+        if (text.Length == 0 ||
+            !decimal.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal parsed))
+        {
+            _edit.Text = Format(_value);
+            return;
+        }
+        decimal v = Math.Clamp(parsed, Minimum, Maximum);
+        bool changed = v != _value;
+        _value = v;
+        _edit.Text = Format(v);
+        if (changed)
+            ValueChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+    }
+
+    private void Step(int direction)
+    {
+        if (!Enabled)
+            return;
+        decimal v = Math.Clamp(_value + direction * Increment, Minimum, Maximum);
+        if (v == _value)
+            return;
+        _value = v;
+        _edit.Text = Format(v);
+        if (_edit.Focused)
+            _edit.SelectAll();
+        ValueChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+    }
+
+    private void OnEditKeyDown(object? sender, KeyEventArgs e)
+    {
+        switch (e.KeyCode)
+        {
+            case Keys.Enter:
+                Commit();
+                _edit.SelectAll();
+                e.SuppressKeyPress = true;
+                break;
+            case Keys.Escape:
+                _edit.Text = Format(_value);
+                _edit.SelectAll();
+                e.SuppressKeyPress = true;
+                break;
+            case Keys.Up:
+                Step(1);
+                e.SuppressKeyPress = true;
+                break;
+            case Keys.Down:
+                Step(-1);
+                e.SuppressKeyPress = true;
+                break;
+        }
+    }
+
+    private bool InStepper(Point p, out bool up)
+    {
+        up = p.Y < Height / 2f;
+        return p.X >= Width - StepperDesignW * UiTheme.DpiScale(this);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (Enabled && e.Button == MouseButtons.Left && InStepper(e.Location, out bool up))
+        {
+            _edit.Focus();       // 与 macOS 一致：点步进器后字段处于「已选中可键入」状态
+            _edit.SelectAll();
+            Step(up ? 1 : -1);
+            _repeatDir = up ? 1 : -1;
+            _pressing = true;
+            _repeat.Interval = 400;
+            _repeat.Start();
+            Invalidate();
+        }
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        _repeat.Stop();
+        _pressing = false;
+        Invalidate();
+        base.OnMouseUp(e);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        _repeat.Stop();
+        _pressing = false;
+        if (_hoverUp || _hoverDown)
+        {
+            _hoverUp = _hoverDown = false;
+            Invalidate();
+        }
+        base.OnMouseLeave(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        bool inStep = InStepper(e.Location, out bool up) && Enabled;
+        bool hUp = inStep && up;
+        bool hDown = inStep && !up;
+        if (hUp != _hoverUp || hDown != _hoverDown)
+        {
+            _hoverUp = hUp;
+            _hoverDown = hDown;
+            Invalidate();
+        }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        base.OnLayout(levent);
+        LayoutEdit();
+    }
+
+    private void LayoutEdit()
+    {
+        float s = UiTheme.DpiScale(this);
+        int pad = (int)Math.Round(8f * s);
+        int stepW = (int)Math.Round(StepperDesignW * s);
+        if (Width < pad * 2 + stepW + 4 * (int)s)   // 控件偏窄（如框架未随 DPI 放大 Width）：给文本至少留 3/4 宽
+            stepW = Math.Max((int)Math.Round(6f * s), (Width - pad * 2) / 4);
+        int h = Math.Min(_edit.PreferredHeight, Math.Max(10, Height - 2));
+        _edit.SetBounds(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2 - stepW), h);
+    }
+
+    /// <summary>高 DPI 下框架缩放本控件时可能只改 Width/Height 而不触发 OnLayout ——
+    /// 内嵌文本框会停在旧尺寸（实测 200% 下仅 20px 宽，数值 "500" 被裁成 "50"）。</summary>
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        LayoutEdit();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        LayoutEdit();
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        LayoutEdit();   // 布局自愈（幂等）：兜住框架缩放未通知的极端情形
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        MacDraw.FillSurface(g, this);
+
+        float s = UiTheme.DpiScale(this);
+        float penW = Math.Max(1f, 1f * s);
+        var rect = new RectangleF(penW / 2f, penW / 2f, Width - penW, Height - penW);
+        float stepperW = StepperDesignW * s;
+        float radius = 6f * s;
+
+        using var path = MacDraw.RoundedPath(rect, radius);
+        using (var fill = new SolidBrush(UiTheme.CardBg))
+            g.FillPath(fill, path);
+
+        if (_hoverUp || _hoverDown)
+        {
+            Color hoverBg = _pressing ? UiTheme.ButtonDown : UiTheme.ButtonHover;
+            g.SetClip(path);
+            using var brush = new SolidBrush(hoverBg);
+            if (_hoverUp)
+                g.FillRectangle(brush, new RectangleF(Width - stepperW, 0, stepperW, Height / 2f));
+            if (_hoverDown)
+                g.FillRectangle(brush, new RectangleF(Width - stepperW, Height / 2f, stepperW, Height / 2f));
+            g.ResetClip();
+        }
+
+        using (var border = new Pen(_edit.Focused ? UiTheme.Accent : UiTheme.ControlBorder,
+                   _edit.Focused ? Math.Max(1f, 1.4f * s) : penW))
+            g.DrawPath(border, path);
+
+        using (var sep = new Pen(UiTheme.ControlBorder, Math.Max(1f, s)))
+            g.DrawLine(sep, Width - stepperW, rect.Y + 3f * s, Width - stepperW, rect.Bottom - 3f * s);
+
+        DrawStepperArrow(g, Width - stepperW / 2f, Height * 0.25f, -1f, s);
+        DrawStepperArrow(g, Width - stepperW / 2f, Height * 0.75f, 1f, s);
+    }
+
+    private void DrawStepperArrow(Graphics g, float cx, float cy, float direction, float s)
+    {
+        float w = 4.2f * s;
+        float h = 3.4f * s;
+        PointF[] pts = direction < 0
+            ? new[] { new PointF(cx - w / 2f, cy + h / 2f), new PointF(cx + w / 2f, cy + h / 2f), new PointF(cx, cy - h / 2f) }
+            : new[] { new PointF(cx - w / 2f, cy - h / 2f), new PointF(cx + w / 2f, cy - h / 2f), new PointF(cx, cy + h / 2f) };
+        using var brush = new SolidBrush(Enabled ? UiTheme.Text : UiTheme.Dim);
+        g.FillPolygon(brush, pts);
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        _edit.Enabled = Enabled;
+        Invalidate();
+        base.OnEnabledChanged(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _repeat.Stop();
+            _repeat.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }

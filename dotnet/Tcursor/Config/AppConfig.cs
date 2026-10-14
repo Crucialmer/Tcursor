@@ -81,7 +81,7 @@ public sealed class AppConfig
     public int ScreenOffsetY { get; set; } = 0;
     public bool LogEnabled { get; set; } = false;
 
-    /// <summary>启动后自动检查更新（每日最多一次；检查结果只提示，不自动安装）</summary>
+    /// <summary>启动后自动检查更新（20 小时节流；发现新版本按 UpdateAutoDownload 决定是否后台静默下载并自动安装）</summary>
     public bool UpdateAutoCheck { get; set; } = true;
     /// <summary>自动下载更新并自动安装（后台静默下载；安装时机 = 退出程序时或下次启动时；关闭则退回「提示 + 点击更新」）</summary>
     public bool UpdateAutoDownload { get; set; } = true;

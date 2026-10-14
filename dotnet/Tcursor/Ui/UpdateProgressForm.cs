@@ -33,7 +33,7 @@ internal sealed class UpdateProgressForm : MacDialogForm
         Text = "Tcursor 更新";
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;   // 位置在 OnLoad 贴右下角（托盘区）
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
@@ -91,6 +91,12 @@ internal sealed class UpdateProgressForm : MacDialogForm
 
         ResumeLayout(false);
         PerformLayout();
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        MacDialogForm.PositionBottomRight(this);   // 与其它「提示 / 信息」类窗口一致：贴托盘区
     }
 
     protected override void OnShown(EventArgs e)

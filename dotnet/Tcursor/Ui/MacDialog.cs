@@ -1,19 +1,20 @@
 namespace Tcursor.Ui;
 
-/// <summary>macOS 风格消息对话框（替代系统 MessageBox；随主题深浅色、居中于父窗体）</summary>
+/// <summary>macOS 风格消息对话框（替代系统 MessageBox；随主题深浅色）。
+/// 有父窗体时居中于父窗体；由托盘直接触发（无父）时贴工作区右下角，与其它提示类窗口一致。</summary>
 internal static class MacDialog
 {
     /// <summary>确认对话框（取消 / 确定）；点「确定」返回 true</summary>
     public static bool Confirm(IWin32Window? owner, string message, string title = "确认")
     {
-        using var form = new MacMessageForm(message, title, confirm: true);
+        using var form = new MacMessageForm(message, title, confirm: true, atTrayCorner: owner is null);
         return Show(owner, form) == DialogResult.OK;
     }
 
     /// <summary>提示对话框（单个「确定」按钮）</summary>
     public static void Alert(IWin32Window? owner, string message, string title = "提示")
     {
-        using var form = new MacMessageForm(message, title, confirm: false);
+        using var form = new MacMessageForm(message, title, confirm: false, atTrayCorner: owner is null);
         _ = Show(owner, form);
     }
 
@@ -26,10 +27,12 @@ internal sealed class MacMessageForm : MacDialogForm
 {
     private const int MessageWidth = 360;   // 文本最大宽度（设计像素）
     private readonly Label _message;
+    private readonly bool _atTrayCorner;   // 无父窗体（托盘直接触发）→ 贴工作区右下角
 
-    public MacMessageForm(string message, string title, bool confirm)
+    public MacMessageForm(string message, string title, bool confirm, bool atTrayCorner = false)
     {
         SuspendLayout();
+        _atTrayCorner = atTrayCorner;
         Text = title;
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
@@ -37,7 +40,7 @@ internal sealed class MacMessageForm : MacDialogForm
         AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
         MaximizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = atTrayCorner ? FormStartPosition.Manual : FormStartPosition.CenterParent;
 
         _message = new Label
         {
@@ -94,5 +97,7 @@ internal sealed class MacMessageForm : MacDialogForm
             new Size(UiTheme.Dpi(this, MessageWidth), int.MaxValue), TextFormatFlags.WordBreak);
         int contentHeight = UiTheme.Dpi(this, 14 + 12 + 40 + 14) + textSize.Height;
         ClientSize = new Size(ClientSize.Width, contentHeight + UiTheme.Dpi(this, MacDialogForm.HeaderDesignPx));
+        if (_atTrayCorner)
+            MacDialogForm.PositionBottomRight(this);   // 尺寸定稿后再贴边
     }
 }

@@ -52,7 +52,7 @@ internal static class Log
             lock (Gate)
             {
                 File.AppendAllText(_filePath, line);
-                _written += line.Length;
+                _written += System.Text.Encoding.UTF8.GetByteCount(line);   // 按落盘字节数累计（中文错误消息 1 字符≈3 字节）
                 if (_written > MaxBytes)
                     Rotate();
             }

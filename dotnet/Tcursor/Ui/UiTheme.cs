@@ -55,7 +55,7 @@ internal sealed class UiPalette
         Accent = Color.FromArgb(0x00, 0x7A, 0xFF),
         AccentHover = Color.FromArgb(0x33, 0x95, 0xFF),
         AccentDown = Color.FromArgb(0x00, 0x62, 0xCC),
-        AccentDisabled = Color.FromArgb(0xB8, 0xD3, 0xF5),
+        AccentDisabled = Color.FromArgb(0xED, 0xED, 0xF0),   // macOS：禁用态主按钮 = 中性灰（不再用淡蓝）
         Text = Color.FromArgb(0x1D, 0x1D, 0x1F),
         Dim = Color.FromArgb(0x8E, 0x8E, 0x93),
         SectionTitle = Color.FromArgb(0x6E, 0x6E, 0x73),
@@ -90,7 +90,7 @@ internal sealed class UiPalette
         Accent = Color.FromArgb(0x0A, 0x84, 0xFF),
         AccentHover = Color.FromArgb(0x3D, 0x9D, 0xFF),
         AccentDown = Color.FromArgb(0x00, 0x66, 0xD6),
-        AccentDisabled = Color.FromArgb(0x1F, 0x3A, 0x5C),
+        AccentDisabled = Color.FromArgb(0x3A, 0x3A, 0x3C),   // macOS：禁用态主按钮 = 中性灰（不再用深蓝）
         Text = Color.FromArgb(0xF2, 0xF2, 0xF7),
         Dim = Color.FromArgb(0x98, 0x98, 0x9D),
         SectionTitle = Color.FromArgb(0xAE, 0xAE, 0xB2),
@@ -129,6 +129,9 @@ internal static class UiTheme
 
     public static readonly Font Font = new("Microsoft YaHei UI", 9.5f);
     public static readonly Font FontBold = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+
+    /// <summary>大标题字体（关于窗口等强调用途；pt 尺寸随系统 DPI 由框架缩放）</summary>
+    public static readonly Font FontTitle = new("Microsoft YaHei UI", 17f, FontStyle.Bold);
 
     public static UiPalette Light { get; } = UiPalette.CreateLight();
     public static UiPalette Dark { get; } = UiPalette.CreateDark();

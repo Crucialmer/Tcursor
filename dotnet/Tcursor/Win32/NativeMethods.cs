@@ -26,6 +26,19 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
     [DllImport("user32.dll")] internal static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] internal static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+    [DllImport("user32.dll")] internal static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>窗口拖动（客户区自绘标题区）用到的消息与命中码</summary>
+    internal const int WM_NCLBUTTONDOWN = 0x00A1;
+    internal const int HTCAPTION = 2;
+
+    // ---------------- dwmapi ----------------
+    /// <summary>DWM 窗口属性（Win11 圆角等；低版本调用失败即忽略）</summary>
+    [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    internal const int DWMWA_WINDOW_CORNER_RADIUS = 33;
+    internal const int DWMWCP_ROUND = 2;
 
     // ---------------- imm32 ----------------
     [DllImport("imm32.dll")] internal static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);

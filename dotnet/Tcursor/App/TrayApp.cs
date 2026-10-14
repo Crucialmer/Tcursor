@@ -26,6 +26,9 @@ internal sealed class TrayApp : ApplicationContext
     private bool _paused;
     private bool _updateBusy;
     private bool _exitInstallDone;
+    private bool _downloading;   // 后台静默下载进行中（期间禁止再次发起下载）
+    private int _checkInFlight;  // 检查互斥（跨线程：覆盖手动与自动两路检查，避免互相覆盖菜单文案）
+    private readonly Microsoft.Win32.SessionEndingEventHandler _onSessionEnding;
     private UpdateInfo? _pendingUpdate;   // 自动检查发现的可用更新（供气泡点击/手动检查复用）
     private string? _preparedPackage;     // 已下载并校验通过的更新包（静默下载完成后）
 
@@ -81,9 +84,10 @@ internal sealed class TrayApp : ApplicationContext
         _controller.Start();
         _watcher.Start();
 
+        _onSessionEnding = (_, _) => TryInstallOnExit();   // 注销/关机时也把已就绪的更新装好
         try
         {
-            Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => TryInstallOnExit();   // 注销/关机时也把已就绪的更新装好
+            Microsoft.Win32.SystemEvents.SessionEnding += _onSessionEnding;
         }
         catch (Exception ex)
         {
@@ -108,6 +112,11 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>菜单项：已有就绪包则直接进入安装确认（不联网），否则发起检查。</summary>
     private void OnUpdateMenu()
     {
+        if (_downloading)
+        {
+            MacDialog.Alert(null, "更新正在后台下载，下载完成后即可安装。", "更新");
+            return;
+        }
         bool ready = _preparedPackage is not null ||
                      (_pendingUpdate is not null && UpdateService.PreparedPackage(_pendingUpdate) is not null);
         if (ready)
@@ -120,6 +129,8 @@ internal sealed class TrayApp : ApplicationContext
     /// 发现新版本后：档①（默认）= 后台静默下载，下载好再提示「已就绪」；关闭自动下载则只提示。</summary>
     private void AutoCheckForUpdates()
     {
+        if (Interlocked.CompareExchange(ref _checkInFlight, 1, 0) != 0)
+            return;   // 已有检查在跑（手动/自动）：避免两路检查并发互相覆盖菜单文案
         try
         {
             if (DateTime.UtcNow.Ticks - _config.UpdateLastCheckUtc < TimeSpan.FromHours(20).Ticks)
@@ -139,7 +150,9 @@ internal sealed class TrayApp : ApplicationContext
                 _pendingUpdate = info;
                 if (_config.UpdateAutoDownload)
                 {
-                    _updateItem.Text = $"更新到 {info.Version}…";
+                    _downloading = true;
+                    _updateItem.Text = "正在下载更新…";
+                    _updateItem.Enabled = false;
                     Task.Run(() => SilentDownload(info));   // 静默下载：不弹进度、不打扰
                     return;
                 }
@@ -150,6 +163,10 @@ internal sealed class TrayApp : ApplicationContext
         catch (Exception ex)
         {
             Log.Error(ex);   // 自动检查失败静默（只记日志）
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _checkInFlight, 0);
         }
     }
 
@@ -168,6 +185,8 @@ internal sealed class TrayApp : ApplicationContext
             _sync.Post(_ =>
             {
                 _preparedPackage = package;
+                _downloading = false;
+                _updateItem.Enabled = true;
                 _updateItem.Text = $"更新到 {info.Version}…";
                 _tray.ShowBalloonTip(10000, "Tcursor 更新已就绪",
                     $"新版本 {info.Version} 已下载并校验完成：点此立即更新；不理会也会在退出或下次启动时自动装好", ToolTipIcon.Info);
@@ -177,12 +196,25 @@ internal sealed class TrayApp : ApplicationContext
         {
             Log.Error(ex);
         }
+        finally
+        {
+            // 无论成败都退出「下载中」状态（成功路径已在上面把文案改为「更新到 x…」）
+            _sync.Post(_ =>
+            {
+                if (!_downloading)
+                    return;
+                _downloading = false;
+                _updateItem.Enabled = true;
+                if (_preparedPackage is null)
+                    _updateItem.Text = "检查更新(&U)…";
+            }, null);
+        }
     }
 
     /// <summary>检查更新（手动 = 有明确反馈；自动 = 静默）。</summary>
     private void CheckForUpdates(bool manual)
     {
-        if (_updateBusy)
+        if (_updateBusy || Interlocked.CompareExchange(ref _checkInFlight, 1, 0) != 0)
             return;
         _updateBusy = true;
         _updateItem.Enabled = false;
@@ -193,8 +225,10 @@ internal sealed class TrayApp : ApplicationContext
             _sync.Post(_ =>
             {
                 _updateBusy = false;
+                Interlocked.Exchange(ref _checkInFlight, 0);
                 _updateItem.Enabled = true;
-                _updateItem.Text = "检查更新(&U)…";
+                if (!_downloading)
+                    _updateItem.Text = "检查更新(&U)…";
                 OnChecked(info, error, manual);
             }, null);
         });
@@ -289,9 +323,10 @@ internal sealed class TrayApp : ApplicationContext
         _exitInstallDone = true;
         try
         {
-            if (UpdateService.InstallPrepared(out string error, restart: false))
+            PreparedInstallResult result = UpdateService.InstallPrepared(out string error, restart: false);
+            if (result == PreparedInstallResult.Started)
                 Log.Info("退出时已交付更新器安装（下次启动为新版本）");
-            else if (error.Length > 0 && !error.Contains("没有已下载"))
+            else if (result == PreparedInstallResult.Failed)
                 Log.Info("退出时安装跳过：" + error);
         }
         catch (Exception ex)
@@ -425,6 +460,14 @@ internal sealed class TrayApp : ApplicationContext
         if (disposing)
         {
             UiTheme.Changed -= OnThemeChanged;
+            try
+            {
+                Microsoft.Win32.SystemEvents.SessionEnding -= _onSessionEnding;   // 静态事件：不退订会让本实例被静态引用
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+            }
             _windowInfoForm?.Dispose();
             _watcher.Dispose();
             _controller.Dispose();

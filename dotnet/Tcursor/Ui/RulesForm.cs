@@ -37,6 +37,24 @@ internal sealed class RulesForm : MacDialogForm
         _list.Dock = DockStyle.Fill;
         _list.BorderStyle = BorderStyle.None;   // 卡片已提供边界，去掉列表自带边框
         _list.BackColor = UiTheme.CardBg;
+        // 整表自绘：复选框列用 macOS 复选框（原生复选框在深色主题下会画出亮白方块），
+        // 文字列沿用主题色；表头留给系统绘制（随系统深浅色）。
+        _list.OwnerDraw = true;
+        _list.DrawColumnHeader += (_, e) => e.DrawDefault = true;
+        _list.DrawItem += (_, e) =>
+        {
+            if (e.Item is null)
+                e.DrawDefault = true;
+            else
+                DrawRow(e.Graphics, e.Item, e.Bounds);
+        };
+        _list.DrawSubItem += (_, e) =>
+        {
+            if (e.Item is null)
+                e.DrawDefault = true;
+            else
+                DrawCell(e.Graphics, e.Item, e.ColumnIndex, e.Bounds);
+        };
         foreach (var (title, width) in Columns)
             _list.Columns.Add(title, width);   // 实际宽度按 DPI 由 ApplyDpiMetrics 覆盖
         _list.DoubleClick += (_, _) => EditSelected();
@@ -65,9 +83,8 @@ internal sealed class RulesForm : MacDialogForm
             ForeColor = UiTheme.Dim,
             Margin = new Padding(0, 0, 0, 2),
             Padding = new Padding(0, 6, 0, 6),
-            Text = "命中任一启用规则才会显示光标符号（白名单机制）。\r\n" +
-                   "进程正则匹配进程名（可不带 .exe）；标题/类名正则为可选的附加条件；列表自上而下按顺序匹配。\r\n" +
-                   "提示：托盘菜单「窗口信息」可实时查看窗口进程，并一键添加规则。",
+            Text = "命中任一启用规则才会显示光标符号（白名单机制）；列表自上而下按顺序匹配。" + Environment.NewLine +
+                   "提示：托盘菜单「窗口信息」可实时查看前台窗口的进程，并一键添加为规则。",
         };
 
         var buttons = new FlowLayoutPanel
@@ -234,6 +251,51 @@ internal sealed class RulesForm : MacDialogForm
         }
     }
 
+    /// <summary>整行自绘（DrawItem 路径）：背景 + 各列内容；列边界按各列宽度推算。</summary>
+    private void DrawRow(Graphics g, ListViewItem item, Rectangle rowBounds)
+    {
+        bool selected = item.Selected;
+        Color surface = selected ? UiTheme.Accent : _list.BackColor;
+        using (var brush = new SolidBrush(surface))
+            g.FillRectangle(brush, rowBounds);
+
+        int x = rowBounds.X;
+        for (int col = 0; col < _list.Columns.Count; col++)
+        {
+            int width = _list.Columns[col].Width;
+            DrawCell(g, item, col, new Rectangle(x, rowBounds.Y, width, rowBounds.Height));
+            x += width;
+        }
+    }
+
+    /// <summary>单元格自绘（DrawSubItem 路径）；与 DrawRow 幂等，两条事件路径都覆盖。</summary>
+    private void DrawCell(Graphics g, ListViewItem item, int column, Rectangle cellBounds)
+    {
+        bool selected = item.Selected;
+        Color surface = selected ? UiTheme.Accent : _list.BackColor;
+        using (var brush = new SolidBrush(surface))
+            g.FillRectangle(brush, cellBounds);
+
+        float s = UiTheme.DpiScale(_list);
+        if (column == 0)
+        {
+            float box = 15f * s;
+            var rect = new RectangleF(cellBounds.X + 11f * s, cellBounds.Y + (cellBounds.Height - box) / 2f, box, box);
+            MacDraw.DrawCheckBox(g, rect, item.Checked, _list.Enabled, surface);
+            return;
+        }
+
+        string text = column < item.SubItems.Count ? item.SubItems[column].Text : "";
+        if (text.Length == 0)
+            return;
+        var bounds = new Rectangle(
+            cellBounds.X + (int)Math.Round(2f * s), cellBounds.Y,
+            Math.Max(0, cellBounds.Width - (int)Math.Round(4f * s)), cellBounds.Height);
+        TextRenderer.DrawText(g, text, _list.Font, bounds, selected ? Color.White : UiTheme.Text,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
+            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
     private static RuleConfig Clone(RuleConfig rule) => new()
     {
         Name = rule.Name,
@@ -252,19 +314,19 @@ internal sealed class RuleEditForm : MacDialogForm
 {
     public RuleConfig? Result { get; private set; }
 
-    private readonly TextBox _name = new() { Dock = DockStyle.Fill };        // Dock=Fill：TLP 单元格内 AutoSize 文本框会被压到不可见宽度，须由单元格约束
-    private readonly TextBox _process = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _title = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _class = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _chain = new() { Dock = DockStyle.Fill };
-    private readonly NumericUpDown _offsetX = new() { Minimum = -500, Maximum = 500, Width = 90 };
-    private readonly NumericUpDown _offsetY = new() { Minimum = -500, Maximum = 500, Width = 90 };
+    private readonly MacField _name = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };   // Dock=Fill：TLP 单元格内 AutoSize 控件会被压到不可见宽度，须由单元格约束
+    private readonly MacField _process = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
+    private readonly MacField _title = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
+    private readonly MacField _class = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
+    private readonly MacField _chain = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
+    private readonly MacNumberField _offsetX = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.WindowBg };
+    private readonly MacNumberField _offsetY = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.WindowBg };
     private readonly MacCheck _enabled = new() { Text = "启用", BackColor = UiTheme.WindowBg };
 
     public RuleEditForm(RuleConfig source)
     {
         SuspendLayout();   // 设计器惯例：同 SettingsForm，末段 ResumeLayout+PerformLayout 触发 AutoScale
-        Text = "编辑规则";
+        Text = "编辑规则 - Tcursor";
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(500, 340 + MacDialogForm.HeaderDesignPx);   // 96 DPI 设计基线（含 macOS 标题区）
         Font = UiTheme.Font;
@@ -289,7 +351,7 @@ internal sealed class RuleEditForm : MacDialogForm
         }
 
         AddRow("名称", _name);
-        AddRow("进程正则（三选一至少一项）", _process);
+        AddRow("进程正则（匹配进程名，可不带 .exe）", _process);
         AddRow("标题正则（可选）", _title);
         AddRow("类名正则（可选）", _class);
         AddRow("捕获链（可选，如 GUI>UIA）", _chain);

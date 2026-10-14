@@ -65,7 +65,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         }
 
         if (!request.Done.Wait(CallTimeoutMs))
-            return false; // 超时：不再等待（晚到的结果会被丢弃）
+        {
+            request.Done.Dispose();   // 超时也要释放（SetDone 已捕获 ObjectDisposedException，与晚到的 Set 竞争是安全的）
+            return false;             // 超时：不再等待（晚到的结果会被丢弃）
+        }
 
         bool found = request.Found;
         var rect = request.Rect;
@@ -134,8 +137,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     }
 
     /// <summary>通知调用方请求结束。
-    /// 防御性保护：当前实现中调用方只在成功分支释放 Done，理论上不会出现在此处释放的情况；
-    /// 但若后续改为「超时分支也立即释放」，本方法的 Set() 就会与 Dispose() 竞争——
+    /// 防御性保护：调用方在成功分支与超时分支都会释放 Done，本方法的 Set() 可能与 Dispose() 竞争——
     /// 未捕获的 ObjectDisposedException 会终止整个 UIA 工作线程（= UIA 捕获永久失效），故在此兜底。</summary>
     private static void SetDone(Request request)
     {

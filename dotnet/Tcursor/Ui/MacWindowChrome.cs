@@ -1,6 +1,5 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 
 namespace Tcursor.Ui;
 
@@ -13,10 +12,16 @@ internal class MacDialogForm : Form
     /// <summary>标题区高度（96 DPI 设计基线像素）</summary>
     public const int HeaderDesignPx = 36;
 
-    private const int WM_NCLBUTTONDOWN = 0x00A1;
-    private const int HTCAPTION = 2;
-    private const int DWMWA_WINDOW_CORNER_RADIUS = 33;
-    private const int DWMWCP_ROUND = 2;
+    /// <summary>把窗口摆到工作区右下角（托盘区附近）——托盘小工具的「提示 / 信息」类窗口统一落点。
+    /// 需在窗口最终尺寸确定后调用（OnLoad 及以后）。</summary>
+    public static void PositionBottomRight(Form form, int designMargin = 24)
+    {
+        Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int margin = UiTheme.Dpi(form, designMargin);
+        form.Location = new Point(
+            Math.Max(area.Left, area.Right - form.Width - margin),
+            Math.Max(area.Top, area.Bottom - form.Height - margin));
+    }
 
     private bool _redHover;
     private bool _redDown;
@@ -43,8 +48,8 @@ internal class MacDialogForm : Form
         base.OnHandleCreated(e);
         try
         {
-            int pref = DWMWCP_ROUND;   // Win11 圆角（低版本调用失败即忽略）
-            _ = DwmSetWindowAttribute(Handle, DWMWA_WINDOW_CORNER_RADIUS, ref pref, sizeof(int));
+            int pref = Win32.NativeMethods.DWMWCP_ROUND;   // Win11 圆角（低版本调用失败即忽略）
+            _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_WINDOW_CORNER_RADIUS, ref pref, sizeof(int));
         }
         catch (Exception ex)
         {
@@ -116,8 +121,8 @@ internal class MacDialogForm : Form
                 return;
             }
             // 拖拽标题区移动窗口（等效系统标题栏拖拽）
-            ReleaseCapture();
-            SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            Win32.NativeMethods.ReleaseCapture();
+            Win32.NativeMethods.SendMessage(Handle, Win32.NativeMethods.WM_NCLBUTTONDOWN, (IntPtr)Win32.NativeMethods.HTCAPTION, IntPtr.Zero);
             return;
         }
         base.OnMouseDown(e);
@@ -183,13 +188,4 @@ internal class MacDialogForm : Form
 
     private void InvalidateHeader()
         => Invalidate(new Rectangle(0, 0, ClientSize.Width, (int)HeaderHeight));
-
-    [DllImport("user32.dll")]
-    private static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }
