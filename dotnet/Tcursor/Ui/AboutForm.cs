@@ -50,7 +50,7 @@ internal sealed class AboutForm : MacDialogForm
         {
             Text = "在光标旁显示输入法状态符号：" + Environment.NewLine +
                    "中文 / 英文 / 大写 / 英文键盘 / 日文 / 韩文" + Environment.NewLine +
-                   "白名单规则 · 窗口信息 · 三种捕获链 · 静默自动更新。",
+                   "白名单规则 · 窗口信息 · 四种捕获链 · 静默自动更新。",
             AutoSize = true,
             MaximumSize = new Size(340, 0),   // 限宽换行；值随 DPI 由框架缩放
             TextAlign = ContentAlignment.MiddleCenter,
