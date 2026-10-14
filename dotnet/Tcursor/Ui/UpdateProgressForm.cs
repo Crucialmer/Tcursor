@@ -48,7 +48,7 @@ internal sealed class UpdateProgressForm : MacDialogForm
             BackColor = UiTheme.WindowBg,
             Margin = new Padding(0, 0, 0, 10),
         };
-        _bar = new Bar { Width = UiTheme.Dpi(this, 392), Height = 10, Margin = new Padding(0, 0, 0, 10), BackColor = UiTheme.WindowBg };
+        _bar = new Bar { Width = 392, Height = 10, Margin = new Padding(0, 0, 0, 10), BackColor = UiTheme.WindowBg };   // 设计像素（与同窗体其它尺寸一致）：随框架 AutoScale 缩放
         _detail = new Label
         {
             Text = "正在连接更新服务…",

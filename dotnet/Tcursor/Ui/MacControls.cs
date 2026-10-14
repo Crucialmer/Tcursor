@@ -491,7 +491,7 @@ internal sealed class MacSlider : Control
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        if (_dragging)
+        if (_dragging && Enabled)
             SetFromMouseX(e.X);
         base.OnMouseMove(e);
     }
@@ -501,6 +501,25 @@ internal sealed class MacSlider : Control
         _dragging = false;
         Capture = false;
         base.OnMouseUp(e);
+    }
+
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        if (!Capture && _dragging)
+            _dragging = false;   // 捕获意外丢失（如 Alt+Tab 切走）：复位拖动
+        base.OnMouseCaptureChanged(e);
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        Cursor = Enabled ? Cursors.Hand : Cursors.Default;   // 禁用态显示默认箭头（与 macOS 一致）
+        if (!Enabled)
+        {
+            _dragging = false;
+            Capture = false;
+        }
+        Invalidate();
+        base.OnEnabledChanged(e);
     }
 }
 
@@ -611,7 +630,9 @@ internal sealed class MacField : Control
         float s = UiTheme.DpiScale(this);
         int pad = (int)Math.Round(8f * s);
         int h = Math.Min(_edit.PreferredHeight, Math.Max(10, Height - 2));
-        _edit.SetBounds(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2), h);
+        var target = new Rectangle(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2), h);
+        if (_edit.Bounds != target)
+            _edit.SetBounds(target.X, target.Y, target.Width, target.Height);   // 幂等：尺寸未变不重排
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -645,6 +666,8 @@ internal sealed class MacField : Control
 internal sealed class MacNumberField : Control
 {
     private const float StepperDesignW = 18f;   // 步进器宽度（设计像素，96 DPI 基线）
+    private const int RepeatInitialMs = 400;   // 按住步进器：首次重复前的停顿
+    private const int RepeatFastMs = 90;       // 首次重复后的连步间隔（macOS 式加速）
 
     private readonly TextBox _edit;
     private readonly System.Windows.Forms.Timer _repeat = new() { Interval = 400 };
@@ -685,7 +708,12 @@ internal sealed class MacNumberField : Control
         _edit.LostFocus += (_, _) => { Commit(); Invalidate(); };
         _edit.KeyDown += OnEditKeyDown;
         Controls.Add(_edit);
-        _repeat.Tick += (_, _) => Step(_repeatDir);
+        _repeat.Tick += (_, _) =>
+        {
+            if (_repeat.Interval != RepeatFastMs)
+                _repeat.Interval = RepeatFastMs;   // 首次重复后加速：macOS 式按住连发
+            Step(_repeatDir);
+        };
         Height = 26;   // 放在 _edit 就绪之后：改 Height 会立刻触发 OnLayout → LayoutEdit
         LayoutEdit();
     }
@@ -787,7 +815,7 @@ internal sealed class MacNumberField : Control
             Step(up ? 1 : -1);
             _repeatDir = up ? 1 : -1;
             _pressing = true;
-            _repeat.Interval = 400;
+            _repeat.Interval = RepeatInitialMs;
             _repeat.Start();
             Invalidate();
         }
@@ -843,7 +871,9 @@ internal sealed class MacNumberField : Control
             stepW = Math.Max((int)Math.Round(6f * s), (Width - pad * 2) / 4);
         _stepWd = stepW;   // 命中测试与绘制共用（见 StepWidth）
         int h = Math.Min(_edit.PreferredHeight, Math.Max(10, Height - 2));
-        _edit.SetBounds(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2 - stepW), h);
+        var target = new Rectangle(pad, Math.Max(1, (Height - h) / 2), Math.Max(10, Width - pad * 2 - stepW), h);
+        if (_edit.Bounds != target)
+            _edit.SetBounds(target.X, target.Y, target.Width, target.Height);   // 幂等：尺寸未变不重排
     }
 
     /// <summary>高 DPI 下框架缩放本控件时可能只改 Width/Height 而不触发 OnLayout ——
