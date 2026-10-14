@@ -153,7 +153,7 @@ internal sealed class TrayApp : ApplicationContext
         }
     }
 
-    /// <summary>后台静默下载 + 校验（档①）。完成后气泡提示：点气泡立即更新，或退出时自动安装。</summary>
+    /// <summary>后台静默下载 + 校验（档①）。完成后气泡提示：点气泡立即更新；不理会则退出或下次启动时自动装好。</summary>
     private void SilentDownload(UpdateInfo info)
     {
         try
@@ -170,7 +170,7 @@ internal sealed class TrayApp : ApplicationContext
                 _preparedPackage = package;
                 _updateItem.Text = $"更新到 {info.Version}…";
                 _tray.ShowBalloonTip(10000, "Tcursor 更新已就绪",
-                    $"新版本 {info.Version} 已下载并校验完成：点击此处立即更新，或退出 Tcursor 时自动更新", ToolTipIcon.Info);
+                    $"新版本 {info.Version} 已下载并校验完成：点此立即更新；不理会也会在退出或下次启动时自动装好", ToolTipIcon.Info);
             }, null);
         }
         catch (Exception ex)
@@ -232,7 +232,7 @@ internal sealed class TrayApp : ApplicationContext
         {
             if (!MacDialog.Confirm(null,
                     $"新版本 {info.Version} 已下载并校验完成（当前 {AppInfo.Version}）。" + Environment.NewLine + Environment.NewLine +
-                    "现在更新并重启？约 1 秒。若不点，退出 Tcursor 时也会自动更新。",
+                    "现在更新并重启？约 1 秒。不理会的话，退出 Tcursor 或下次启动时也会自动装好。",
                     "更新已就绪"))
                 return;
             FinishUpdate(prepared, restart: true);

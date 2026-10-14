@@ -586,7 +586,7 @@ internal static class UpdateService
         MarkPrepared(info);
         payload["prepared"] = package;
         payload["sha256"] = Sha256Of(package);
-        payload["result"] = "已下载并校验通过（点击立即更新，或退出时自动安装）";
+        payload["result"] = "已下载并校验通过（点击立即更新；退出或下次启动时自动安装）";
         WriteResult(outFile, payload);
         return 0;
     }
