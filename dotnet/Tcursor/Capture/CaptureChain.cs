@@ -29,6 +29,7 @@ internal sealed class CaptureChain : IDisposable
     private readonly GuiCaretCapture _gui = new();
     private readonly UiaCaretCapture _uia = new();
     private readonly MsaaCaretCapture _msaa = new();
+    private readonly TsfCaretCapture _tsf = new();
 
     // 仅检测工作线程读写；Reset() 采用“换新实例”的方式避免跨线程并发访问
     private Dictionary<uint, string> _lastGood = new();
@@ -106,6 +107,7 @@ internal sealed class CaptureChain : IDisposable
             "GUI" => _gui,
             "UIA" => _uia,
             "MSAA" => _msaa,
+            "TSF" => _tsf,
             _ => null,
         };
         if (capture is null)

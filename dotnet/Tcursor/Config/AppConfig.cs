@@ -76,6 +76,9 @@ public sealed class AppConfig
     /// <summary>&gt;0 时：空闲超过该时长后隐藏符号（毫秒）</summary>
     public int HideDelayMs { get; set; } = 0;
     public string DefaultCaptureChain { get; set; } = "GUI>UIA>MSAA";
+    /// <summary>TSF 光标读取（最后手段）：其余后端全部失败时，为“自绘 + 无障碍封闭”类应用（如微信 4.x）
+    /// 通过进程内 TSF 读取光标位置（实现与许可见 Capture/TsfCaretCapture.cs 与 THIRD-PARTY-NOTICES.txt）</summary>
+    public bool TsfFallback { get; set; } = true;
     /// <summary>全局偏移（所有状态共用，96 DPI 逻辑像素；叠加每条规则的“追加偏移”）</summary>
     public int ScreenOffsetX { get; set; } = 0;
     public int ScreenOffsetY { get; set; } = 0;

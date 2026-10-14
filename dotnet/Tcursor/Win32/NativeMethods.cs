@@ -58,6 +58,33 @@ internal static class NativeMethods
     // ---------------- oleacc ----------------
     [DllImport("oleacc.dll")] internal static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint dwId, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppvObject);
 
+    // ---------------- kernel32（TSF 进程内读取：进程/内存/线程） ----------------
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool CloseHandle(IntPtr hObject);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, nuint dwSize, uint flAllocationType, uint flProtect);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, nuint dwSize, uint dwFreeType);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, nuint nSize, out nuint lpNumberOfBytesWritten);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, nuint nSize, out nuint lpNumberOfBytesRead);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool FlushInstructionCache(IntPtr hProcess, IntPtr lpBaseAddress, nuint dwSize);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, nuint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, out uint lpThreadId);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool K32EnumProcessModulesEx(IntPtr hProcess, [Out] IntPtr[] lphModule, nuint cb, out nuint lpcbNeeded, uint dwFilterFlag);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern uint K32GetModuleBaseNameW(IntPtr hProcess, IntPtr hModule, StringBuilder lpBaseName, int nSize);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool K32GetModuleInformation(IntPtr hProcess, IntPtr hModule, out MODULEINFO lpmodinfo, uint cb);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MODULEINFO
+    {
+        public IntPtr lpBaseOfDll;
+        public uint SizeOfImage;
+        public IntPtr EntryPoint;
+    }
+
+    // ---------------- user32（自注册窗口消息：TSF 取光标通知用） ----------------
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern uint RegisterWindowMessageW(string lpString);
+
     internal delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
     [StructLayout(LayoutKind.Sequential)]

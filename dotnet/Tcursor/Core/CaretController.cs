@@ -196,6 +196,9 @@ internal sealed class CaretController : IDisposable
         }
 
         string chainSpec = rule.CaptureChain.Length > 0 ? rule.CaptureChain : config.DefaultCaptureChain;
+        // TSF 最后手段：其余后端全失败时，为封闭应用（微信 4.x 等）追加进程内读取（见 TsfCaretCapture）
+        if (config.TsfFallback && chainSpec.Length > 0 && chainSpec.IndexOf("TSF", StringComparison.OrdinalIgnoreCase) < 0)
+            chainSpec += ">TSF";
 
         if (!_chain.TryCapture(win.Pid, win.Hwnd, chainSpec, out CaretRect caret, out bool transientFailure))
         {

@@ -354,7 +354,7 @@ internal sealed class RuleEditForm : MacDialogForm
         AddRow("进程正则（匹配进程名，可不带 .exe）", _process);
         AddRow("标题正则（可选）", _title);
         AddRow("类名正则（可选）", _class);
-        AddRow("捕获链（可选，如 GUI>UIA）", _chain);
+        AddRow("捕获链（可选，如 GUI>UIA>MSAA>TSF）", _chain);
         AddRow("追加偏移 X / Y", new FlowLayoutPanel { AutoSize = true, WrapContents = false, Controls = { _offsetX, _offsetY } });
         AddRow("", _enabled); // 左侧标签留空：复选框自带「启用」文字，避免重复
 
