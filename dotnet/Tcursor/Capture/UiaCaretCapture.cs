@@ -214,17 +214,23 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     }
 
     /// <summary>
-    /// 「Chromium 页面根文档」判定（Chrome / Edge / WebView2 / Electron 同源实现）。
+    /// 「Chromium 页面（含内层框架）根文档」判定（Chrome / Edge / WebView2 / Electron / QtWebEngine 同源实现）。
     ///
     /// Chromium 系浏览器会在渲染宿主（Chrome_RenderWidgetHostHWND）之下的**根文档**上维护一个“伪光标”：
     /// 折叠选区始终停留在“最后一次点击处”，**即使焦点不在任何可编辑元素上**——点击正文文字行、空白区域、
     /// 链接、图片，Focus 元素都会是这篇根文档，选区退化到 1px 宽（“光标形”），从而被上面的选区退化路径
     /// 当作输入框光标采用，符号就显示在了没有输入框的地方（用户上报：Chrome 中点击文字行也会弹提示）。
     ///
+    /// 2026-10-14 扩展：**同源 iframe 的内层文档**同样维护该伪光标（用户上报：阿里旺旺网页版聊天框在
+    /// 非输入区也弹提示；实测 Chrome 155：点 iframe 内文字行，焦点元素即内层 Document，选区 1×37px）。
+    /// 内层文档的父元素不是渲染宿主，而是外层文档/分组，故不能只看父元素——改为沿父链向上最多 9 层
+    /// 找渲染宿主/顶层窗口类，命中任意一层即视为“页面根文档”。
+    ///
     /// 真实可编辑元素不受此判定影响：表单控件（input/textarea/地址栏）暴露为 Edit；contenteditable
-    /// 暴露为**文档之下**的子元素（Group 或嵌套 Document，如 iframe 富文本编辑器）——它们的父元素不是
-    /// 渲染宿主，因此照常采用（实测：Chrome 155 点 textarea/内容可编辑区仍正常显示）。
-    /// 判定失败（父元素读不到）时不拦截，保持原有行为。
+    /// 暴露为**文档之下**的子元素（Group），不是 Document 类型，照常采用（实测：Chrome 155 点
+    /// textarea / 内容可编辑区 / iframe 内 contenteditable 仍正常显示）。代价：以 Document 形式暴露的
+    /// 整页可编辑（designMode、body contenteditable）在 Chromium 窗口下不再提示——与该判定既有取舍一致。
+    /// 判定失败（父链读不到）时不拦截，保持原有行为。
     /// </summary>
     private static bool IsChromiumPageRoot(AutomationElement element)
     {
@@ -232,12 +238,16 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             if (element.ControlType != ControlType.Document)
                 return false;
-            AutomationElement? parent = element.Parent;
-            if (parent is null)
-                return false;
-            string cls = parent.ClassName ?? "";
-            return cls.StartsWith("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal)
-                || cls.StartsWith("Chrome_WidgetWin_", StringComparison.Ordinal);
+            AutomationElement? current = element.Parent;
+            for (int depth = 0; current is not null && depth < 9; depth++)
+            {
+                string cls = current.ClassName ?? "";
+                if (cls.StartsWith("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal)
+                    || cls.StartsWith("Chrome_WidgetWin_", StringComparison.Ordinal))
+                    return true;
+                current = current.Parent;
+            }
+            return false;
         }
         catch
         {
