@@ -63,6 +63,16 @@ internal sealed class LayeredSymbolWindow : Form
                 return false;
         }
 
+        // 先核对真实可见态并恢复（含从最小化恢复），再写入内容与位置——顺序不可颠倒：
+        // 若先 UpdateLayeredWindow 再 SW_SHOWNOACTIVATE，从最小化恢复会把窗口放回“最小化前的旧位置”，
+        // 冲掉刚写入的新位置，而调用方以为已移动到新位置（症状 = 符号停在旧位置不动，直到下一次光标移动；
+        // 长跑 soak 实测：外部最小化后健康检查位置不符 6/6，即此序缺陷）
+        if (!_visible || IsIconic(Handle) || !IsWindowVisible(Handle))
+        {
+            ShowWindow(Handle, SW_SHOWNOACTIVATE);
+            _visible = true;
+        }
+
         // 位图变化（或尺寸变化）才重建 GDI 缓存；仅移动时复用（快速路径）
         if (!ReferenceEquals(_cachedBitmap, bitmap) || _cachedWidth != bitmap.Width || _cachedHeight != bitmap.Height)
         {
@@ -88,12 +98,6 @@ internal sealed class LayeredSymbolWindow : Form
             ReleaseScreenDc();
             return false;
         }
-
-        if (!_visible)
-        {
-            ShowWindow(Handle, SW_SHOWNOACTIVATE);
-            _visible = true;
-        }
         return true;
     }
 
@@ -113,6 +117,10 @@ internal sealed class LayeredSymbolWindow : Form
         ShowWindow(Handle, SW_HIDE);
         _visible = false;
     }
+
+    /// <summary>真实可见态（OS 查询，非内部标志）：供检测循环做周期性失联校验。</summary>
+    internal bool IsActuallyVisible()
+        => _visible && IsWindowVisible(Handle) && !IsIconic(Handle);
 
     /// <summary>按当前位图重建 GDI 缓存（内存 DC + 位图副本）</summary>
     private bool RebuildBitmapCache(Bitmap bitmap)

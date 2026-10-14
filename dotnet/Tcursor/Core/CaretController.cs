@@ -53,6 +53,7 @@ internal sealed class CaretController : IDisposable
     private Bitmap? _lastBitmap;
     private bool _shown;
     private long _lastCaptureOkAt;
+    private long _lastVisibleCheckAt;
 
     public CaretController(AppConfig config, LayeredSymbolWindow window)
     {
@@ -247,6 +248,15 @@ internal sealed class CaretController : IDisposable
 
         bool redraw = !ReferenceEquals(style, _lastStyle) || Math.Abs(scale - _lastScale) > 0.001 || _lastBitmap is null;
         bool moved = x != _lastPos.X || y != _lastPos.Y;
+
+        // 周期性核对符号窗口真实可见态（约每 2s）：外部最小化/“显示桌面”/句柄重建等会让内部标志
+        // 与真实状态失联——此前表现为“跑久了所有应用都不再显示、需重启”，发现失联即强制走重新显示路径
+        if (_shown && Environment.TickCount64 - _lastVisibleCheckAt >= 2000)
+        {
+            _lastVisibleCheckAt = Environment.TickCount64;
+            if (!InvokeOnUi(() => _window.IsActuallyVisible()))
+                _shown = false;
+        }
 
         // 注意：即使样式与位置都未变，只要当前是“隐藏”状态（曾 HideSymbol），也要重新显示
         if (!redraw && !moved && _shown)

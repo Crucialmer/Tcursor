@@ -9,8 +9,9 @@
 //  · 仅 64 位目标进程（32 位目标直接放弃）；
 //  · 跳过自身进程、系统关键进程与外壳/Chromium 窗口（桌面、资源管理器、Chromium 系浏览器与
 //    Electron 应用的光标由既有后端覆盖，无需注入）；
-//  · 每次调用 = 注入 → 读取 → 释放；目标无响应由壳内 200ms 发送超时兜底（本侧等待封顶 2s，
-//    极端情况下保留已分配内存不释放——宁可微泄漏也不冒释放竞态）；
+//  · 每次调用 = 注入 → 读取 → 释放；目标无响应由壳内 200ms 发送超时兜底（本侧等待封顶 2s；
+//    仅“远程线程未确认退出”这一极端情形保留已分配内存不释放——宁可微泄漏也不冒释放竞态，
+//    其余失败路径均已即时释放）；
 //  · 无光标（全零）或失败后按 pid 节流 300ms；成功不节流——避免对无光标目标高频注入；
 //  · 本后端只作为捕获链的最后手段（其余后端先行；由 AppConfig.TsfFallback 控制是否追加）。
 using System.Diagnostics;
@@ -176,16 +177,18 @@ internal sealed class TsfCaretCapture : ICaretCapture
             if (mem == IntPtr.Zero)
                 return false;
 
+            bool threadStarted = false;
             bool threadExited = false;
             try
             {
                 if (!WriteProcessMemory(hProcess, mem, code, (nuint)code.Length, out nuint written) || (long)written != code.Length)
-                    return false;
+                    return false;   // 未启动线程：目标内存由 finally 立即释放
                 FlushInstructionCache(hProcess, mem, (nuint)code.Length);
 
                 IntPtr hThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, mem + ThreadProcRva, mem, 0, out uint _);
                 if (hThread == IntPtr.Zero)
-                    return false;
+                    return false;   // 未启动线程：目标内存由 finally 立即释放
+                threadStarted = true;
                 try
                 {
                     threadExited = WaitForSingleObject(hThread, 2000) == WaitObject0;
@@ -213,7 +216,8 @@ internal sealed class TsfCaretCapture : ICaretCapture
             }
             finally
             {
-                if (threadExited)
+                // 仅“线程未启动”或“已确认退出”时释放；未退出（极端超时）保留不释放，避免释放竞态
+                if (!threadStarted || threadExited)
                     VirtualFreeEx(hProcess, mem, 0, MemRelease);
             }
         }

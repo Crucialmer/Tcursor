@@ -19,6 +19,7 @@ namespace Tcursor.Capture;
 internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 {
     private const int CallTimeoutMs = 150;
+    private const int RecycleAfterErrors = 8;   // 连续异常达到该次数：重建自动化连接（见 RecycleAutomation）
 
     private sealed class Request
     {
@@ -34,6 +35,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     private Request? _pending;
     private volatile bool _quit;
     private UIA3Automation? _automation;
+    private int _consecutiveErrors;   // 仅 UIA 工作线程访问
 
     public UiaCaretCapture()
     {
@@ -121,10 +123,18 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             {
                 _automation ??= new UIA3Automation();
                 found = CaptureCore(_automation, request.Hwnd, out rect);
+                _consecutiveErrors = 0;   // 无异常完成（含“未命中”）：连接健康
             }
             catch
             {
-                // 目标繁忙/元素失效等：按失败处理
+                // 目标繁忙/元素失效等：按失败处理。
+                // 但持续的连续异常意味着自动化连接本身可能已劣化（COM 断开等）——重建后重试；
+                // 否则 UIA 捕获会一直失败到进程重启（长时运行后浏览器类窗口不再出现符号的修复点）。
+                if (++_consecutiveErrors >= RecycleAfterErrors)
+                {
+                    Core.Log.Error($"UIA 自动化连接连续异常 {_consecutiveErrors} 次：已重建");
+                    RecycleAutomation();
+                }
             }
 
             if (found)
@@ -149,6 +159,23 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             // 调用方已放弃并释放：忽略
         }
+    }
+
+    /// <summary>释放并重建 UIA 自动化连接（下次使用时惰性重建）。仅 UIA 工作线程调用。
+    /// 背景：UIA 客户端的 COM 连接在目标崩溃/RPC 断开等故障后可能持续报错，重建自动化对象是
+    /// 公认的恢复手段；不重建则 UIA 捕获会一直失败到进程重启。</summary>
+    private void RecycleAutomation()
+    {
+        _consecutiveErrors = 0;
+        try
+        {
+            _automation?.Dispose();
+        }
+        catch
+        {
+            // 忽略释放异常
+        }
+        _automation = null;
     }
 
     private static bool CaptureCore(UIA3Automation automation, IntPtr hwnd, out CaretRect caret)
