@@ -19,7 +19,7 @@ internal sealed class AboutForm : MacDialogForm
         SuspendLayout();
         Text = "关于 Tcursor";
         StartPosition = FormStartPosition.Manual;   // 位置在 Load 里贴右下角（托盘区）
-        ClientSize = new Size(420, 360 + MacDialogForm.HeaderDesignPx);
+        ClientSize = new Size(420, 380 + MacDialogForm.HeaderDesignPx);
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -62,7 +62,8 @@ internal sealed class AboutForm : MacDialogForm
         var license = new Label
         {
             Text = "GNU 通用公共许可证第 3 版（GPL-3.0）" + Environment.NewLine +
-                   "© 2026 Crucialmer · 第三方组件见 THIRD-PARTY-NOTICES.txt",
+                   "© 2026 Crucialmer" + Environment.NewLine +
+                   "第三方组件许可见包内 THIRD-PARTY-NOTICES.txt",
             AutoSize = true,
             MaximumSize = new Size(340, 0),
             TextAlign = ContentAlignment.MiddleCenter,
