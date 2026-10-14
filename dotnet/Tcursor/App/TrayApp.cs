@@ -25,7 +25,7 @@ internal sealed class TrayApp : ApplicationContext
     private AppConfig _config;
     private bool _paused;
     private bool _updateBusy;
-    private bool _exitInstallDone;
+    private int _exitInstallDone;   // Interlocked：SessionEnding（系统事件线程）与退出路径（UI 线程）可能并发进入
     private bool _downloading;   // 后台静默下载进行中（期间禁止再次发起下载）
     private int _checkInFlight;  // 检查互斥（跨线程：覆盖手动与自动两路检查，避免互相覆盖菜单文案）
     private readonly Microsoft.Win32.SessionEndingEventHandler _onSessionEnding;
@@ -95,12 +95,12 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         // 启动时若已有「上次退出前下载就绪」的更新包，先提示一次（并让菜单项反映可更新状态）
-        UpdateInfo? prepared = UpdateService.ReadPrepared();
-        if (prepared is not null)
+        // 一次拿回「清单 + 包路径」：原先 ReadPrepared + PreparedPackage 会对 46MB 包各做一次全量 sha256
+        if (UpdateService.ReadPreparedWithPackage() is { } preparedNow)
         {
-            _pendingUpdate = prepared;
-            _preparedPackage = UpdateService.PreparedPackage(prepared);
-            _updateItem.Text = $"更新到 {prepared.Version}…";
+            _pendingUpdate = preparedNow.Info;
+            _preparedPackage = preparedNow.Package;
+            _updateItem.Text = $"更新到 {preparedNow.Info.Version}…";
         }
 
         if (_config.UpdateAutoCheck)
@@ -117,8 +117,7 @@ internal sealed class TrayApp : ApplicationContext
             MacDialog.Alert(null, "更新正在后台下载，下载完成后即可安装。", "更新");
             return;
         }
-        bool ready = _preparedPackage is not null ||
-                     (_pendingUpdate is not null && UpdateService.PreparedPackage(_pendingUpdate) is not null);
+        bool ready = _preparedPackage is not null;   // 就绪包在下载完成时已记录路径；不再每次点击都重算 46MB 哈希
         if (ready)
             OfferPendingUpdate();
         else
@@ -143,19 +142,21 @@ internal sealed class TrayApp : ApplicationContext
             }
             _sync.Post(_ =>
             {
-                _config.UpdateLastCheckUtc = DateTime.UtcNow.Ticks;
-                ConfigStore.Save(_config);
                 if (!info.Newer)
+                {
+                    MarkChecked();   // 检查完成且无需下载：记录节流时间戳
                     return;
+                }
                 _pendingUpdate = info;
                 if (_config.UpdateAutoDownload)
                 {
                     _downloading = true;
                     _updateItem.Text = "正在下载更新…";
                     _updateItem.Enabled = false;
-                    Task.Run(() => SilentDownload(info));   // 静默下载：不弹进度、不打扰
+                    Task.Run(() => SilentDownload(info));   // 时间戳留到下载有结果再记（失败则下次启动立即重试）
                     return;
                 }
+                MarkChecked();
                 _tray.ShowBalloonTip(10000, "Tcursor 有新版本",
                     $"发现 {info.Version}（当前 {AppInfo.Version}）——点击此处更新", ToolTipIcon.Info);
             }, null);
@@ -170,6 +171,14 @@ internal sealed class TrayApp : ApplicationContext
         }
     }
 
+    /// <summary>记录「检查 + （开启自动下载时）下载成功」的时刻——20 小时节流的依据。
+    /// 下载失败**不记录**：否则一次网络抖动会把用户冻结到 20 小时后再有机会更新。</summary>
+    private void MarkChecked()
+    {
+        _config.UpdateLastCheckUtc = DateTime.UtcNow.Ticks;
+        ConfigStore.Save(_config);
+    }
+
     /// <summary>后台静默下载 + 校验（档①）。完成后气泡提示：点气泡立即更新；不理会则退出或下次启动时自动装好。</summary>
     private void SilentDownload(UpdateInfo info)
     {
@@ -178,7 +187,7 @@ internal sealed class TrayApp : ApplicationContext
             string? package = UpdateService.Download(info, null, CancellationToken.None, out string error);
             if (package is null)
             {
-                Log.Info("后台下载更新失败：" + error);
+                Log.Info("后台下载更新失败（下次启动会自动重试）：" + error);
                 return;
             }
             UpdateService.MarkPrepared(info);
@@ -188,6 +197,7 @@ internal sealed class TrayApp : ApplicationContext
                 _downloading = false;
                 _updateItem.Enabled = true;
                 _updateItem.Text = $"更新到 {info.Version}…";
+                MarkChecked();   // 下载成功：记时间戳（此后由退出/启动时安装接管）
                 _tray.ShowBalloonTip(10000, "Tcursor 更新已就绪",
                     $"新版本 {info.Version} 已下载并校验完成：点此立即更新；不理会也会在退出或下次启动时自动装好", ToolTipIcon.Info);
             }, null);
@@ -318,9 +328,12 @@ internal sealed class TrayApp : ApplicationContext
     /// 下次启动即为新版本）。这是档①的落点：使用中永不重启，更新在退出时悄悄装好。</summary>
     private void TryInstallOnExit()
     {
-        if (_exitInstallDone || !_config.UpdateAutoDownload)
+        if (!_config.UpdateAutoDownload)
             return;
-        _exitInstallDone = true;
+        // 注销/关机（SystemEvents 专用线程）与点「退出」（UI 线程）可能同时进来 —— 必须原子地只放行一次，
+        // 否则两个更新器实例会互相撞锁（第二个复制自更新器时第一个已在运行）。
+        if (Interlocked.Exchange(ref _exitInstallDone, 1) != 0)
+            return;
         try
         {
             PreparedInstallResult result = UpdateService.InstallPrepared(out string error, restart: false);

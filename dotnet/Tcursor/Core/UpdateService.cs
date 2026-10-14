@@ -249,10 +249,18 @@ internal static class UpdateService
         error = "";
         try
         {
+            // 无校验值一律不下载（旧行为：无哈希也下载并报「已校验通过」，但退出/启动时安装又要求 64 位哈希
+            // → 包永远装不上、每次检查都重下 46MB）。官方发布脚本会自动在描述里写 zip sha256，正常源不会命中这里。
+            if (info.Sha256.Length != 64)
+            {
+                error = "更新源未提供 sha256 校验值：出于安全考虑不自动下载，请从官方发布页手动更新";
+                Log.Info("下载跳过：" + error);
+                return null;
+            }
             Directory.CreateDirectory(WorkDir);
             string package = Path.Combine(WorkDir, PackageName);
 
-            if (File.Exists(package) && info.Sha256.Length == 64 && Sha256Of(package).Equals(info.Sha256, StringComparison.OrdinalIgnoreCase))
+            if (File.Exists(package) && Sha256Of(package).Equals(info.Sha256, StringComparison.OrdinalIgnoreCase))
                 return package;   // 上次已下好：直接复用
 
             using var response = HttpFile.GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token)
@@ -278,7 +286,7 @@ internal static class UpdateService
                     progress?.Report((done, total));
                 }
                 string actual = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-                if (info.Sha256.Length == 64 && !actual.Equals(info.Sha256, StringComparison.OrdinalIgnoreCase))
+                if (!actual.Equals(info.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
                     error = $"下载校验失败：sha256 不符（期望 {info.Sha256[..12]}…，实际 {actual[..12]}…）";
                     TryDelete(tmp);
@@ -392,6 +400,7 @@ internal static class UpdateService
 
             string targetDir = Path.GetDirectoryName(targetExe)!;
             ReplaceWithRetry(newExe, targetExe);
+            ClearPendingManifest();   // 替换已成功：清「已就绪」清单（第一道保险；失败路径保留清单供下次启动重试）
 
             string sourceDir = Path.GetDirectoryName(newExe)!;
             foreach (string name in new[] { "Tcursor.pdb", "LICENSE", "THIRD-PARTY-NOTICES.txt" })
@@ -470,21 +479,28 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>替换目标文件：旧进程刚退出时句柄可能尚未释放，做有限重试。</summary>
+    /// <summary>替换目标 exe：先把新文件复制到**目标同目录的旁路文件**（同卷），校验大小后原子改名覆盖——
+    /// 覆盖过程中断电/被杀只会留下 .new 垃圾，不会出现「复制了一半、旧版本又没了」的死局
+    /// （原先 File.Copy 原地覆盖：先截断再写，中断即损坏且无法回滚）。运行中的 exe 不能改名，故整体带重试。</summary>
     private static void ReplaceWithRetry(string source, string target)
     {
         Exception? last = null;
         for (int attempt = 1; attempt <= 12; attempt++)
         {
+            string side = target + ".new";
             try
             {
-                File.Copy(source, target, overwrite: true);
-                Log.Info($"替换成功：{target}（第 {attempt} 次尝试）");
+                File.Copy(source, side, overwrite: true);
+                if (new FileInfo(side).Length != new FileInfo(source).Length)
+                    throw new IOException("旁路副本大小与源不符（复制不完整）");
+                File.Move(side, target, overwrite: true);   // 同卷改名 = 原子元数据操作
+                Log.Info($"替换成功：{target}（第 {attempt} 次尝试，旁路+原子改名）");
                 return;
             }
             catch (Exception ex)
             {
                 last = ex;
+                TryDelete(side);   // 清掉半成品，下一轮重来
                 Thread.Sleep(250);
             }
         }
@@ -639,17 +655,21 @@ internal static class UpdateService
         };
     }
 
-    /// <summary>把「已下载并校验通过」的状态写入清单（退出时安装不联网，只依赖它）。</summary>
+    /// <summary>把「已下载并校验通过」的状态写入清单（退出时安装不联网，只依赖它）。
+    /// attempts 记录「已交付更新器但未确认成功」的次数，用于防「更新器反复失败 → 每次启动都重试」的循环。</summary>
     public static void MarkPrepared(UpdateInfo info)
     {
         try
         {
+            if (info.Sha256.Length != 64)
+                return;   // 语义统一：没有 64 位哈希就不算「已就绪」（与 ReadPrepared 的要求一致）
             Directory.CreateDirectory(WorkDir);
             File.WriteAllText(PendingManifestPath, JsonSerializer.Serialize(new Dictionary<string, object?>
             {
                 ["version"] = info.Version,
                 ["sha256"] = info.Sha256,
                 ["size"] = info.Size,
+                ["attempts"] = 0,
                 ["preparedAtUtc"] = DateTime.UtcNow.ToString("O"),
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -659,8 +679,43 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>读取「已就绪」的更新（不联网）：清单存在且包哈希相符才返回；否则返回 null。</summary>
-    public static UpdateInfo? ReadPrepared()
+    /// <summary>清单里的交付尝试次数（缺失/解析失败按 0 计）。</summary>
+    private static int ReadManifestAttempts()
+    {
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(PendingManifestPath));
+            return doc.RootElement.TryGetProperty("attempts", out JsonElement e) && e.TryGetInt32(out int n) ? n : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>更新清单里的交付尝试次数（保留版本/哈希等字段）。</summary>
+    private static void WriteManifestAttempts(UpdateInfo info, int attempts)
+    {
+        try
+        {
+            File.WriteAllText(PendingManifestPath, JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["version"] = info.Version,
+                ["sha256"] = info.Sha256,
+                ["size"] = info.Size,
+                ["attempts"] = attempts,
+                ["preparedAtUtc"] = DateTime.UtcNow.ToString("O"),
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
+    }
+
+    /// <summary>读取「已就绪」的更新并**一次性**完成包校验，返回（清单信息, 包路径）。
+    /// 上层原先 ReadPrepared→PreparedPackage 会被连续调用三遍，每遍都对 46MB 包做一次全量 sha256。</summary>
+    public static (UpdateInfo Info, string Package)? ReadPreparedWithPackage()
     {
         try
         {
@@ -672,7 +727,8 @@ internal static class UpdateService
             if (version.Length == 0 || sha.Length != 64)
                 return null;
             var info = new UpdateInfo { Tag = "v" + version, Version = version, AssetName = PackageName, Sha256 = sha, Newer = true };
-            return PreparedPackage(info) is not null ? info : null;
+            string? package = PreparedPackage(info);
+            return package is null ? null : (info, package);
         }
         catch (Exception ex)
         {
@@ -681,27 +737,38 @@ internal static class UpdateService
         }
     }
 
+    /// <summary>读取「已就绪」的更新（不联网）：清单存在且包哈希相符才返回；否则返回 null。</summary>
+    public static UpdateInfo? ReadPrepared() => ReadPreparedWithPackage() is { } prepared ? prepared.Info : null;
+
     /// <summary>安装「已就绪」的更新包（不联网）：<paramref name="restart"/>=false 用于退出时自动安装。
-    /// 调用方按返回的结果分支（勿用错误文案判断语义）。</summary>
+    /// 调用方按返回的结果分支（勿用错误文案判断语义）。
+    /// 清单**不在这里清除**：交给更新器，由它在替换成功后清 —— 替换失败时清单保留（带 attempts 计数），
+    /// 下次启动可再试（最多 <see cref="MaxInstallAttempts"/> 次后放弃，避免无限重试）。</summary>
     public static PreparedInstallResult InstallPrepared(out string error, bool restart = false)
     {
         error = "";
-        UpdateInfo? info = ReadPrepared();
-        if (info is null)
+        if (!File.Exists(PendingManifestPath))
         {
             error = "没有已下载就绪的更新包";
             return PreparedInstallResult.NothingPrepared;
         }
-        string? package = PreparedPackage(info);
-        if (package is null)
+        if (ReadPreparedWithPackage() is not { } prepared)
         {
-            ClearPendingManifest();
+            ClearPendingManifest();   // 清单在但包缺失/校验失败：清掉，避免每次启动重复校验
             error = "更新包不完整或校验失败";
             return PreparedInstallResult.Failed;
         }
-        if (!SpawnUpdater(package, out error, restart))
+        int attempts = ReadManifestAttempts();
+        if (attempts >= MaxInstallAttempts)
+        {
+            ClearPendingManifest();
+            error = $"更新器连续 {attempts} 次未能完成替换，已放弃本次安装（下次检查会重新下载）";
+            Log.Info(error);
             return PreparedInstallResult.Failed;
-        ClearPendingManifest();
+        }
+        WriteManifestAttempts(prepared.Info, attempts + 1);
+        if (!SpawnUpdater(prepared.Package, out error, restart))
+            return PreparedInstallResult.Failed;
         return PreparedInstallResult.Started;
     }
 
@@ -747,6 +814,9 @@ internal static class UpdateService
 
     /// <summary>「已就绪」清单路径</summary>
     public static string PendingManifestPath => Path.Combine(WorkDir, "pending.json");
+
+    /// <summary>「已交付更新器但未确认成功」的最大次数（防失败后每次启动都重试）</summary>
+    private const int MaxInstallAttempts = 2;
 
     private static void WriteResult(string outFile, Dictionary<string, object?> payload)
     {

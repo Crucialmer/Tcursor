@@ -102,12 +102,15 @@ internal sealed class UpdateProgressForm : MacDialogForm
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        Task.Run(RunDownload);
+        // Progress 必须在**界面线程**构造才能捕获 WinForms 的同步上下文（回调才会回到界面线程）；
+        // 原先在 Task.Run 的池线程里构造 → 回调在线程池线程上直接改控件：发布版靠 Win32 跨线程调用
+        // 侥幸可用，附加调试器时会抛 Cross-thread operation 并让整个下载失败。
+        var progress = new Progress<(long Done, long Total)>(OnProgress);
+        Task.Run(() => RunDownload(progress));
     }
 
-    private void RunDownload()
+    private void RunDownload(IProgress<(long Done, long Total)> progress)
     {
-        var progress = new Progress<(long Done, long Total)>(OnProgress);   // 在界面线程构造：回调自动回到界面线程
         string? package = UpdateService.Download(_info, progress, _cts.Token, out string error);
         Post(() =>
         {
