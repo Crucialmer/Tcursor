@@ -83,6 +83,8 @@ public sealed class AppConfig
 
     /// <summary>启动后自动检查更新（每日最多一次；检查结果只提示，不自动安装）</summary>
     public bool UpdateAutoCheck { get; set; } = true;
+    /// <summary>自动下载更新并在退出程序时安装（档①：后台静默下载 + 不重启安装；关闭则退回「提示 + 点击更新」）</summary>
+    public bool UpdateAutoDownload { get; set; } = true;
     /// <summary>上次自动检查更新的时间（UTC ticks；避免每次启动都联网）</summary>
     public long UpdateLastCheckUtc { get; set; } = 0;
 

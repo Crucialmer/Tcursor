@@ -60,7 +60,8 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly NumericUpDown _offsetX = new() { Minimum = -500, Maximum = 500, Width = 58 };
     private readonly NumericUpDown _offsetY = new() { Minimum = -500, Maximum = 500, Width = 58 };
     private readonly MacSwitch _logEnabled = new() { Text = "写入日志文件（排障用）", BackColor = UiTheme.CardBg };
-    private readonly MacSwitch _updateAutoCheck = new() { Text = "启动时自动检查更新（每日一次，只提示不自动安装）", BackColor = UiTheme.CardBg };
+    private readonly MacSwitch _updateAutoCheck = new() { Text = "启动时自动检查更新（每日一次）", BackColor = UiTheme.CardBg };
+    private readonly MacSwitch _updateAutoDownload = new() { Text = "自动下载更新并在退出时安装（不打断使用）", BackColor = UiTheme.CardBg };
 
     private bool _loading;
     private string _currentKey = "Chinese";
@@ -228,6 +229,7 @@ internal sealed class SettingsForm : MacDialogForm
         advFlow.Controls.Add(_chain);
         advFlow.Controls.Add(_logEnabled);
         advFlow.Controls.Add(_updateAutoCheck);
+        advFlow.Controls.Add(_updateAutoDownload);
         var advanced = new MacCard("高级") { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
         advanced.Controls.Add(advFlow);
 
@@ -408,6 +410,7 @@ internal sealed class SettingsForm : MacDialogForm
             _offsetY.Value = ClampN(_config.ScreenOffsetY, _offsetY);
             _logEnabled.Checked = _config.LogEnabled;
             _updateAutoCheck.Checked = _config.UpdateAutoCheck;
+            _updateAutoDownload.Checked = _config.UpdateAutoDownload;
         }
         finally
         {
@@ -477,6 +480,7 @@ internal sealed class SettingsForm : MacDialogForm
         _config.ScreenOffsetY = (int)_offsetY.Value;
         _config.LogEnabled = _logEnabled.Checked;
         _config.UpdateAutoCheck = _updateAutoCheck.Checked;
+        _config.UpdateAutoDownload = _updateAutoDownload.Checked;
         _config.StyleVersion = AppConfig.CurrentStyleVersion;   // 与 Save 回写一致；勿低于 Normalize 最新迁移段
 
         var styles = new Dictionary<string, SymbolStyle>();

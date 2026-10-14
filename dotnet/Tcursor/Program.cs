@@ -10,12 +10,13 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        // 更新器模式：由正在运行的实例启动（等旧进程退出 → 替换 exe → 重启）。
+        // 更新器模式：由正在运行的实例启动（等旧进程退出 → 替换 exe → 视参数重启）。
         // 必须早于单实例互斥：更新器与被替换文件无占用关系，不应受「已有实例」影响。
         if (args.Length >= 3 && args[0] == "--apply-update")
         {
             int waitPid = args.Length > 3 && int.TryParse(args[3], out int parsed) ? parsed : 0;
-            Environment.Exit(UpdateService.ApplyUpdate(args[1], args[2], waitPid));
+            bool restart = !args.Contains("--no-restart");
+            Environment.Exit(UpdateService.ApplyUpdate(args[1], args[2], waitPid, restart));
             return;
         }
 
@@ -37,6 +38,18 @@ internal static class Program
         {
             Log.Init();
             Environment.Exit(UpdateService.UpdateNowCli(args[1]));
+            return;
+        }
+        if (args.Length >= 2 && args[0] == "--prepare-update")
+        {
+            Log.Init();
+            Environment.Exit(UpdateService.PrepareCli(args[1]));
+            return;
+        }
+        if (args.Length >= 2 && args[0] == "--install-prepared")
+        {
+            Log.Init();
+            Environment.Exit(UpdateService.InstallPreparedCli(args[1]));
             return;
         }
 

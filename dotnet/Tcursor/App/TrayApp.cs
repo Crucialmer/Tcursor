@@ -25,7 +25,9 @@ internal sealed class TrayApp : ApplicationContext
     private AppConfig _config;
     private bool _paused;
     private bool _updateBusy;
+    private bool _exitInstallDone;
     private UpdateInfo? _pendingUpdate;   // 自动检查发现的可用更新（供气泡点击/手动检查复用）
+    private string? _preparedPackage;     // 已下载并校验通过的更新包（静默下载完成后）
 
     public TrayApp()
     {
@@ -58,7 +60,7 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add("重新加载配置(&L)", null, (_, _) => ReloadConfig());
         menu.Items.Add(_startupItem);
         menu.Items.Add(new ToolStripSeparator());
-        _updateItem = new ToolStripMenuItem("检查更新(&U)…", null, (_, _) => CheckForUpdates(manual: true));
+        _updateItem = new ToolStripMenuItem("检查更新(&U)…", null, (_, _) => OnUpdateMenu());
         menu.Items.Add(_updateItem);
         menu.Items.Add("关于(&B)…", null, (_, _) => ShowAbout());
         menu.Items.Add("退出(&X)", null, (_, _) => ExitApp());
@@ -79,13 +81,43 @@ internal sealed class TrayApp : ApplicationContext
         _controller.Start();
         _watcher.Start();
 
+        try
+        {
+            Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => TryInstallOnExit();   // 注销/关机时也把已就绪的更新装好
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
+
+        // 启动时若已有「上次退出前下载就绪」的更新包，先提示一次（并让菜单项反映可更新状态）
+        UpdateInfo? prepared = UpdateService.ReadPrepared();
+        if (prepared is not null)
+        {
+            _pendingUpdate = prepared;
+            _preparedPackage = UpdateService.PreparedPackage(prepared);
+            _updateItem.Text = $"更新到 {prepared.Version}…";
+        }
+
         if (_config.UpdateAutoCheck)
             Task.Run(AutoCheckForUpdates);   // 启动后台检查（每日一次；不阻塞启动）
     }
 
     // ---------------- 检查更新 ----------------
 
-    /// <summary>启动时的后台检查：距上次检查不足 20 小时则跳过；发现新版本只提示、不自动安装。</summary>
+    /// <summary>菜单项：已有就绪包则直接进入安装确认（不联网），否则发起检查。</summary>
+    private void OnUpdateMenu()
+    {
+        bool ready = _preparedPackage is not null ||
+                     (_pendingUpdate is not null && UpdateService.PreparedPackage(_pendingUpdate) is not null);
+        if (ready)
+            OfferPendingUpdate();
+        else
+            CheckForUpdates(manual: true);
+    }
+
+    /// <summary>启动时的后台检查：距上次检查不足 20 小时则跳过；
+    /// 发现新版本后：档①（默认）= 后台静默下载，下载好再提示「已就绪」；关闭自动下载则只提示。</summary>
     private void AutoCheckForUpdates()
     {
         try
@@ -105,6 +137,12 @@ internal sealed class TrayApp : ApplicationContext
                 if (!info.Newer)
                     return;
                 _pendingUpdate = info;
+                if (_config.UpdateAutoDownload)
+                {
+                    _updateItem.Text = $"更新到 {info.Version}…";
+                    Task.Run(() => SilentDownload(info));   // 静默下载：不弹进度、不打扰
+                    return;
+                }
                 _tray.ShowBalloonTip(10000, "Tcursor 有新版本",
                     $"发现 {info.Version}（当前 {AppInfo.Version}）——点击此处更新", ToolTipIcon.Info);
             }, null);
@@ -112,6 +150,32 @@ internal sealed class TrayApp : ApplicationContext
         catch (Exception ex)
         {
             Log.Error(ex);   // 自动检查失败静默（只记日志）
+        }
+    }
+
+    /// <summary>后台静默下载 + 校验（档①）。完成后气泡提示：点气泡立即更新，或退出时自动安装。</summary>
+    private void SilentDownload(UpdateInfo info)
+    {
+        try
+        {
+            string? package = UpdateService.Download(info, null, CancellationToken.None, out string error);
+            if (package is null)
+            {
+                Log.Info("后台下载更新失败：" + error);
+                return;
+            }
+            UpdateService.MarkPrepared(info);
+            _sync.Post(_ =>
+            {
+                _preparedPackage = package;
+                _updateItem.Text = $"更新到 {info.Version}…";
+                _tray.ShowBalloonTip(10000, "Tcursor 更新已就绪",
+                    $"新版本 {info.Version} 已下载并校验完成：点击此处立即更新，或退出 Tcursor 时自动更新", ToolTipIcon.Info);
+            }, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
         }
     }
 
@@ -156,12 +220,25 @@ internal sealed class TrayApp : ApplicationContext
         OfferPendingUpdate();
     }
 
-    /// <summary>提示并执行更新：确认 → 下载校验（进度）→ 启动更新器 → 退出主进程让其完成替换与重启。</summary>
+    /// <summary>更新确认与执行：已有就绪包 → 直接安装（带重启）；否则下载（进度）再安装。</summary>
     private void OfferPendingUpdate()
     {
         UpdateInfo? info = _pendingUpdate;
         if (info is null)
             return;
+
+        string? prepared = _preparedPackage ?? UpdateService.PreparedPackage(info);
+        if (prepared is not null)
+        {
+            if (!MacDialog.Confirm(null,
+                    $"新版本 {info.Version} 已下载并校验完成（当前 {AppInfo.Version}）。" + Environment.NewLine + Environment.NewLine +
+                    "现在更新并重启？约 1 秒。若不点，退出 Tcursor 时也会自动更新。",
+                    "更新已就绪"))
+                return;
+            FinishUpdate(prepared, restart: true);
+            return;
+        }
+
         if (!MacDialog.Confirm(null,
                 $"发现新版本 {info.Version}（当前 {AppInfo.Version}）。" + Environment.NewLine + Environment.NewLine +
                 "立即下载并更新？更新完成后程序会自动重启。",
@@ -184,18 +261,43 @@ internal sealed class TrayApp : ApplicationContext
                 MacDialog.Alert(null, "更新未完成：" + (progress.Error.Length > 0 ? progress.Error : "未知原因"), "更新");
             return;
         }
+        FinishUpdate(progress.PackagePath!, restart: true);
+    }
 
-        if (!UpdateService.SpawnUpdater(progress.PackagePath!, out string error))
+    /// <summary>把更新包交给更新器完成替换；<paramref name="restart"/>=false 用于退出时自动安装（下次启动即新版本）。</summary>
+    private void FinishUpdate(string package, bool restart)
+    {
+        if (!UpdateService.SpawnUpdater(package, out string error, restart))
         {
-            MacDialog.Alert(null,
-                "无法启动更新器：" + error + Environment.NewLine + Environment.NewLine +
-                "已下载的更新包：" + Environment.NewLine + progress.PackagePath + Environment.NewLine + Environment.NewLine +
-                "可手动解压覆盖当前目录。", "更新失败");
+            if (restart)
+                MacDialog.Alert(null,
+                    "无法启动更新器：" + error + Environment.NewLine + Environment.NewLine +
+                    "已下载的更新包：" + Environment.NewLine + package + Environment.NewLine + Environment.NewLine +
+                    "可手动解压覆盖当前目录。", "更新失败");
             return;
         }
-
         _tray.Visible = false;
-        ExitThread();   // 退出主进程：更新器接管替换与重启
+        ExitThread();   // 退出主进程：更新器接管替换（与可选重启）
+    }
+
+    /// <summary>退出前：若已有「已下载并校验通过」的更新包且允许自动安装，则交给更新器（**不重启**，
+    /// 下次启动即为新版本）。这是档①的落点：使用中永不重启，更新在退出时悄悄装好。</summary>
+    private void TryInstallOnExit()
+    {
+        if (_exitInstallDone || !_config.UpdateAutoDownload)
+            return;
+        _exitInstallDone = true;
+        try
+        {
+            if (UpdateService.InstallPrepared(out string error, restart: false))
+                Log.Info("退出时已交付更新器安装（下次启动为新版本）");
+            else if (error.Length > 0 && !error.Contains("没有已下载"))
+                Log.Info("退出时安装跳过：" + error);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
     }
 
     private void TogglePause()
@@ -313,6 +415,7 @@ internal sealed class TrayApp : ApplicationContext
 
     private void ExitApp()
     {
+        TryInstallOnExit();   // 档①：退出时把已就绪的更新装好（下次启动即新版本，不重启）
         _tray.Visible = false;
         ExitThread();
     }

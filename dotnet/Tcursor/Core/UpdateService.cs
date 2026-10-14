@@ -302,8 +302,8 @@ internal static class UpdateService
 
     // ---------------- 应用 ----------------
 
-    /// <summary>启动更新器（自身副本）完成替换与重启；主进程随后应立即退出。</summary>
-    public static bool SpawnUpdater(string packagePath, out string error)
+    /// <summary>启动更新器（自身副本）完成替换（可选重启）；主进程随后应立即退出。</summary>
+    public static bool SpawnUpdater(string packagePath, out string error, bool restart = true)
     {
         error = "";
         try
@@ -325,6 +325,8 @@ internal static class UpdateService
             psi.ArgumentList.Add(packagePath);
             psi.ArgumentList.Add(self);
             psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            if (!restart)
+                psi.ArgumentList.Add("--no-restart");
             Process.Start(psi);
             return true;
         }
@@ -336,11 +338,26 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>
-    /// 更新器主体（`--apply-update &lt;zip&gt; &lt;目标 exe&gt; &lt;旧进程 pid&gt;`）：
-    /// 等旧进程退出 → 解压 → 替换 exe（与包内同名的随包文件，存在才替换）→ 重启。
-    /// </summary>
-    public static int ApplyUpdate(string packagePath, string targetExe, int waitPid)
+    /// <summary>从更新信息解析出的包名与哈希，判断工作目录里是否已有「已下载并校验通过」的更新包。</summary>
+    public static string? PreparedPackage(UpdateInfo info)
+    {
+        try
+        {
+            string package = Path.Combine(WorkDir, PackageName);
+            if (!File.Exists(package) || info.Sha256.Length != 64)
+                return null;
+            return Sha256Of(package).Equals(info.Sha256, StringComparison.OrdinalIgnoreCase) ? package : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>更新器主体（`--apply-update &lt;zip&gt; &lt;目标 exe&gt; &lt;旧进程 pid&gt; [--no-restart]`）：
+    /// 等旧进程退出 → 解压 → 替换 exe（与包内同名的随包文件，存在才替换）→ 视参数重启。
+    /// 「退出时自动安装」用 <paramref name="restart"/>=false：换好即可，下次启动就是新版本（使用中不重启）。</summary>
+    public static int ApplyUpdate(string packagePath, string targetExe, int waitPid, bool restart = true)
     {
         try
         {
@@ -381,14 +398,14 @@ internal static class UpdateService
                 }
             }
 
-            if (Environment.GetEnvironmentVariable(NoRestartEnv) is not { Length: > 0 })
+            if (restart && Environment.GetEnvironmentVariable(NoRestartEnv) is not { Length: > 0 })
             {
                 Process.Start(new ProcessStartInfo(targetExe) { UseShellExecute = true });
                 Log.Info("更新完成，已重启新版本");
             }
             else
             {
-                Log.Info("更新完成（按环境变量要求未重启）");
+                Log.Info("更新完成（未重启：下次启动即为新版本）");
             }
 
             TryDeleteDir(extractDir);
@@ -539,6 +556,135 @@ internal static class UpdateService
         WriteResult(outFile, payload);
         return spawned ? 0 : 1;
     }
+
+    /// <summary>`--prepare-update &lt;结果文件&gt;`：检查 + 静默下载（不安装）。0 已就绪 / 3 已是最新 / 1 失败。</summary>
+    public static int PrepareCli(string outFile)
+    {
+        var payload = new Dictionary<string, object?> { ["current"] = AppInfo.Version, ["feed"] = Feed };
+        UpdateInfo? info = Check(out string error);
+        if (info is null)
+        {
+            payload["error"] = error;
+            WriteResult(outFile, payload);
+            return 1;
+        }
+        payload["latest"] = info.Version;
+        if (!info.Newer)
+        {
+            payload["result"] = "已是最新版本";
+            WriteResult(outFile, payload);
+            return 3;
+        }
+        string? package = Download(info, null, CancellationToken.None, out string downloadError);
+        if (package is null)
+        {
+            payload["error"] = downloadError;
+            payload["result"] = "下载失败";
+            WriteResult(outFile, payload);
+            return 1;
+        }
+        MarkPrepared(info);
+        payload["prepared"] = package;
+        payload["sha256"] = Sha256Of(package);
+        payload["result"] = "已下载并校验通过（点击立即更新，或退出时自动安装）";
+        WriteResult(outFile, payload);
+        return 0;
+    }
+
+    /// <summary>`--install-prepared &lt;结果文件&gt;`：安装「已就绪」的更新包（不联网、不重启）。
+    /// 0 已交给更新器 / 3 无就绪包 / 1 失败。</summary>
+    public static int InstallPreparedCli(string outFile)
+    {
+        var payload = new Dictionary<string, object?> { ["current"] = AppInfo.Version };
+        bool ok = InstallPrepared(out string error, restart: false);
+        payload["result"] = ok ? "更新器已启动（未重启：下次启动为新版本）" : error;
+        payload["error"] = ok ? "" : error;
+        WriteResult(outFile, payload);
+        return ok ? 0 : (error.Contains("没有已下载") ? 3 : 1);
+    }
+
+    /// <summary>把「已下载并校验通过」的状态写入清单（退出时安装不联网，只依赖它）。</summary>
+    public static void MarkPrepared(UpdateInfo info)
+    {
+        try
+        {
+            Directory.CreateDirectory(WorkDir);
+            File.WriteAllText(PendingManifestPath, JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["version"] = info.Version,
+                ["sha256"] = info.Sha256,
+                ["size"] = info.Size,
+                ["preparedAtUtc"] = DateTime.UtcNow.ToString("O"),
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
+    }
+
+    /// <summary>读取「已就绪」的更新（不联网）：清单存在且包哈希相符才返回；否则返回 null。</summary>
+    public static UpdateInfo? ReadPrepared()
+    {
+        try
+        {
+            if (!File.Exists(PendingManifestPath))
+                return null;
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(PendingManifestPath));
+            string version = GetString(doc.RootElement, "version");
+            string sha = GetString(doc.RootElement, "sha256");
+            if (version.Length == 0 || sha.Length != 64)
+                return null;
+            var info = new UpdateInfo { Tag = "v" + version, Version = version, AssetName = PackageName, Sha256 = sha, Newer = true };
+            return PreparedPackage(info) is not null ? info : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+            return null;
+        }
+    }
+
+    /// <summary>安装「已就绪」的更新包（不联网）：<paramref name="restart"/>=false 用于退出时自动安装。
+    /// 无就绪包 / 包校验不过 / 更新器启动失败时返回 false 并给出原因。</summary>
+    public static bool InstallPrepared(out string error, bool restart = false)
+    {
+        error = "";
+        UpdateInfo? info = ReadPrepared();
+        if (info is null)
+        {
+            error = "没有已下载就绪的更新包";
+            return false;
+        }
+        string? package = PreparedPackage(info);
+        if (package is null)
+        {
+            ClearPendingManifest();
+            error = "更新包不完整或校验失败";
+            return false;
+        }
+        if (!SpawnUpdater(package, out error, restart))
+            return false;
+        ClearPendingManifest();
+        return true;
+    }
+
+    /// <summary>清除「已就绪」清单（交接给更新器后调用，避免重复安装）。</summary>
+    public static void ClearPendingManifest()
+    {
+        try
+        {
+            if (File.Exists(PendingManifestPath))
+                File.Delete(PendingManifestPath);
+        }
+        catch
+        {
+            // 清理失败无妨（下次校验会发现包缺失/不符）
+        }
+    }
+
+    /// <summary>「已就绪」清单路径</summary>
+    public static string PendingManifestPath => Path.Combine(WorkDir, "pending.json");
 
     private static void WriteResult(string outFile, Dictionary<string, object?> payload)
     {
