@@ -2,7 +2,7 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
-## 功能范围（v1.2）
+## 功能范围（v1.3）
 
 - **六种状态检测**：中文 `CN` · 英文 `EN` · 大写 `Caps` · 英文键盘 `US` · 日文 `JP` · 韩文 `KR`（CapsLock 优先，中文布局查询 IME 打开状态/转换码）
 - **光标符号（矩形）**：圆角为 **Apple/Figma 连续曲率**（corner smoothing 0.6），档位 直角 / 小 16% / 中 25% / 大 33%（默认）/ 特大 40% / 超大 45% / 胶囊 50%；**macOS 标准边框样式**：无 / 细描边 / 内高光 / 微立体 / 柔和阴影；每状态颜色/尺寸/透明度（位置“偏移”为全局共用）；渲染整幅超采样（小尺寸边缘平滑）；逐像素透明、点击穿透、不抢焦点
@@ -11,7 +11,7 @@ Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；�
 - **窗口信息**：实时显示当前窗口的进程/类名/标题/路径，并可一键添加为白名单规则
 - **捕获链**：`GUI`（GetGUIThreadInfo）→ `UIA`（窗口/焦点元素 TextPattern2 光标范围；无几何时借相邻字符边缘推算——覆盖 Win11 资源管理器地址栏/搜索框；选区退化仅取“光标形”，且**页面根文档的伪光标不采用**——浏览器只在真实输入位置显示）→ `MSAA`（OBJID_CARET），按顺序回退；每进程记住最近成功后端，快失败即时重试、慢失败渐进退避；覆盖 Chromium 系浏览器与 Windows 11 资源管理器（重命名 / 地址栏 / 搜索框）等场景
 - **托盘界面**：图标（运行 = 蓝 / 暂停 = 灰）、暂停/恢复、设置、规则管理、窗口信息、打开配置文件、打开数据目录、开机自启、检查更新
-- **自动更新**：GitHub Releases 元数据检查（`TCURSOR_UPDATE_FEED` 可覆盖更新源，便于测试/镜像）→ 后台静默下载 → `zip sha256` 校验 → 复制自身为临时“更新器”进程 → 等主进程退出后替换 exe（随包文件存在才替换）→ 重启或留待下次启动生效；「已就绪」状态记在 `%TEMP%\Tcursor.Update\pending.json`（退出时安装不联网）。程序目录不可写时提示改用手动下载。无界面入口：`--check-update`、`--prepare-update`、`--install-prepared`、`--update-now`、`--apply-update`（后两者含 `--no-restart`）
+- **自动更新**：GitHub Releases 元数据检查（`TCURSOR_UPDATE_FEED` 可覆盖更新源，便于测试/镜像）→ 后台静默下载 → `zip sha256` 校验 → 复制自身为临时“更新器”进程 → 等主进程退出后替换 exe（随包文件存在才替换）。**安装时机**：手动立即装并重启 / 退出程序时装（不重启）/ 下次启动时装（重启一次，`TryInstallPreparedOnStartup`，仅当清单版本严格新于当前，防循环）。「已就绪」状态记在 `%TEMP%\Tcursor.Update\pending.json`（退出时安装不联网）。程序目录不可写时提示改用手动下载。无界面入口：`--check-update`、`--prepare-update`、`--install-prepared`、`--update-now`、`--apply-update`（后两者含 `--no-restart`）
 
 ## 构建与运行
 
@@ -48,7 +48,7 @@ Tcursor.exe --selftest <输出目录>
 
 ```
 Tcursor/
-  Program.cs              入口（单实例 / 自检 / 全局异常）
+  Program.cs              入口（单实例 / 启动时安装已就绪的更新 / 自检 / 全局异常）
   Assets/                 内嵌资源（图标：运行蓝 / 暂停灰 + 应用 ico）
   App/TrayApp.cs          托盘应用与生命周期
   Core/                   状态检测、控制器（工作线程）、前台信息读取、窗口信息探测、规则预编译、日志、自动更新（UpdateService）

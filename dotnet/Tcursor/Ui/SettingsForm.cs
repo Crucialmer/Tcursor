@@ -61,7 +61,7 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly NumericUpDown _offsetY = new() { Minimum = -500, Maximum = 500, Width = 58 };
     private readonly MacSwitch _logEnabled = new() { Text = "写入日志文件（排障用）", BackColor = UiTheme.CardBg };
     private readonly MacSwitch _updateAutoCheck = new() { Text = "启动时自动检查更新（每日一次）", BackColor = UiTheme.CardBg };
-    private readonly MacSwitch _updateAutoDownload = new() { Text = "自动下载更新并在退出时安装（不打断使用）", BackColor = UiTheme.CardBg };
+    private readonly MacSwitch _updateAutoDownload = new() { Text = "自动下载并安装更新（退出时或下次启动）", BackColor = UiTheme.CardBg };
 
     private bool _loading;
     private string _currentKey = "Chinese";

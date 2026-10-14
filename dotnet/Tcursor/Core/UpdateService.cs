@@ -683,6 +683,32 @@ internal static class UpdateService
         }
     }
 
+    /// <summary>启动时安装（v1.3）：若本机已有「已就绪」且**比当前版本更新**的更新包，就交给更新器（带重启）
+    /// 并让调用方立即退出 —— 更新器等本进程退出后替换 exe 并启动新版本（约 2 秒）。
+    ///
+    /// 这补上了两个边界：① 上次被强制结束（任务管理器 / 断电 / 关机超时）没来得及在退出时安装；
+    /// ② 上次退出时更新还没下载好。版本比较是防循环的第二道保险（更新器替换后版本已相等，清单也已清除）。</summary>
+    public static bool TryInstallPreparedOnStartup(out string note)
+    {
+        note = "";
+        UpdateInfo? info = ReadPrepared();
+        if (info is null)
+            return false;
+        if (CompareVersions(info.Version, AppInfo.Version) <= 0)
+        {
+            ClearPendingManifest();   // 陈旧清单（版本不新于当前）：清掉，避免每次启动都尝试
+            note = $"已就绪清单版本 {info.Version} 不新于当前 {AppInfo.Version}，已清除";
+            return false;
+        }
+        if (!InstallPrepared(out string error, restart: true))
+        {
+            note = "启动时安装未进行：" + error;
+            return false;
+        }
+        note = $"已交付更新器：{AppInfo.Version} → {info.Version}（替换后自动启动新版本）";
+        return true;
+    }
+
     /// <summary>「已就绪」清单路径</summary>
     public static string PendingManifestPath => Path.Combine(WorkDir, "pending.json");
 

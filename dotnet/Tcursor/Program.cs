@@ -1,5 +1,6 @@
 using System.Threading;
 using Tcursor.App;
+using Tcursor.Config;
 using Tcursor.Core;
 using Tcursor.Ui;
 
@@ -57,6 +58,16 @@ internal static class Program
         using var mutex = new Mutex(true, "Tcursor.SingleInstance", out bool createdNew);
         if (!createdNew)
             return;
+
+        // 启动时安装（v1.3）：本机已有「已就绪」且比当前版本更新的更新包 → 现在装好并重启一次（约 2 秒），
+        // 这样「强制结束」「关机超时」「上次退出时还没下好」这几种情况也能在下次启动时补上。
+        string startupNote = "";
+        if (ConfigStore.Load().UpdateAutoDownload && UpdateService.TryInstallPreparedOnStartup(out startupNote))
+        {
+            Log.Init();
+            Log.Info("启动时安装：" + startupNote);
+            return;   // 更新器接管：等本进程退出 → 替换 → 启动新版本
+        }
 
         Log.Init();
         Application.ThreadException += (_, e) => Log.Error(e.Exception);
