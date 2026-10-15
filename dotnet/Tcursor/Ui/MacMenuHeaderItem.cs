@@ -109,15 +109,27 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         float textX = badgeRect.Right + 11f * s;
         float rightPadding = cardRect.Right - 10f * s;
 
-        // 第一行：Tcursor（Bold 700 品牌名）+ 版本微标
+        // 第一行：Tcursor（Bold 700 品牌名）
         int line1Y = (int)Math.Round(cardRect.Y + 8f * s);
         TextRenderer.DrawText(g, "Tcursor", UiTheme.FontMenuHeader,
             new Point((int)textX, line1Y), UiTheme.Current.Text, TextFormatFlags.NoPadding);
 
-        Size brandSize = TextRenderer.MeasureText("Tcursor", UiTheme.FontMenuHeader);
-        int verX = (int)textX + brandSize.Width + (int)Math.Round(8f * s);
-        TextRenderer.DrawText(g, _versionText, UiTheme.FontCaption,
-            new Point(verX, line1Y + (int)Math.Round(3f * s)), UiTheme.Current.Dim, TextFormatFlags.NoPadding);
+        // 版本徽标（对标 SwitchTask #menuHeaderVersion：独立微光小胶囊）
+        Size verTextSize = TextRenderer.MeasureText(_versionText, UiTheme.FontCaption);
+        float verBadgeW = verTextSize.Width + 10f * s;
+        float verBadgeH = Math.Max(16f, 18f * s);
+        float verBadgeX = cardRect.Right - verBadgeW - 10f * s;
+        float verBadgeY = cardRect.Y + 8f * s;
+        var verRect = new RectangleF(verBadgeX, verBadgeY, verBadgeW, verBadgeH);
+        using (var verPath = MacDraw.RoundedPath(verRect, Math.Max(3f, 4f * s)))
+        {
+            Color verBg = isDark ? Color.FromArgb(28, 255, 255, 255) : Color.FromArgb(16, 0, 0, 0);
+            using var verBrush = new SolidBrush(verBg);
+            g.FillPath(verBrush, verPath);
+        }
+        var verTextRect = new Rectangle((int)verBadgeX, (int)verBadgeY, (int)verBadgeW, (int)verBadgeH);
+        TextRenderer.DrawText(g, _versionText, UiTheme.FontCaption, verTextRect, UiTheme.Current.Dim,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
         // 第二行：状态呼吸圆点 + 状态文字
         int line2Y = (int)Math.Round(cardRect.Y + 32f * s);

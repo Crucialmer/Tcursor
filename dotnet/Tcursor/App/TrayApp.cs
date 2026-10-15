@@ -49,7 +49,7 @@ internal sealed class TrayApp : ApplicationContext
         _brandHeader.Click += (_, _) => OpenSettings();
 
         ToolStripMenuItem MakeItem(string text, EventHandler? onClick = null)
-            => new(text, null, onClick) { Font = UiTheme.FontMenu, Padding = new Padding(8, 5, 8, 5) };
+            => new(text, null, onClick) { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) };
 
         _toggleItem = MakeItem("暂停", (_, _) => TogglePause());
         _startupItem = MakeItem("开机自启动", (_, _) => ToggleStartup());
@@ -64,6 +64,7 @@ internal sealed class TrayApp : ApplicationContext
             Padding = new Padding(4, 6, 4, 6),
         };
         _menu = menu;
+        menu.MinimumSize = new Size(UiTheme.Dpi(menu, 260), 0);
         menu.HandleCreated += (_, _) =>
         {
             try
@@ -86,6 +87,7 @@ internal sealed class TrayApp : ApplicationContext
                 _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
             }
             catch { }
+            menu.MinimumSize = new Size(UiTheme.Dpi(menu, 260), 0);
             _brandHeader.UpdateStatus(_paused, _config.Rules.Count(r => r.Enabled));
         };
 
