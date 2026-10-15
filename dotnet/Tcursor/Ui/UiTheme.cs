@@ -127,11 +127,27 @@ internal static class UiTheme
     /// <summary>设计基线 DPI：全部界面像素常量按 96 DPI 设计。</summary>
     public const float DesignDpi = 96f;
 
-    public static readonly Font Font = new("Microsoft YaHei UI", 9.5f);
-    public static readonly Font FontBold = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+    private static readonly string PrimaryFontName = ResolveFontFamily();
+
+    private static string ResolveFontFamily()
+    {
+        // 优先 Segoe UI Variable Text（Windows 11 原生，英数字形排版兼具果味与现代感），中文平滑回退微软雅黑
+        try
+        {
+            using var test = new FontFamily("Segoe UI Variable Text");
+            return "Segoe UI Variable Text";
+        }
+        catch
+        {
+            return "Microsoft YaHei UI";
+        }
+    }
+
+    public static readonly Font Font = new(PrimaryFontName, 9.5f);
+    public static readonly Font FontBold = new(PrimaryFontName, 9.5f, FontStyle.Bold);
 
     /// <summary>大标题字体（关于窗口等强调用途；pt 尺寸随系统 DPI 由框架缩放）</summary>
-    public static readonly Font FontTitle = new("Microsoft YaHei UI", 17f, FontStyle.Bold);
+    public static readonly Font FontTitle = new(PrimaryFontName, 17f, FontStyle.Bold);
 
     public static UiPalette Light { get; } = UiPalette.CreateLight();
     public static UiPalette Dark { get; } = UiPalette.CreateDark();
@@ -191,6 +207,8 @@ internal static class UiTheme
         foreach (Form form in Application.OpenForms)
         {
             RemapTree(form, old, next);
+            if (form is MacDialogForm macForm && macForm.IsHandleCreated)
+                macForm.UpdateDwmTheme(dark);
             form.Invalidate(true);
         }
 

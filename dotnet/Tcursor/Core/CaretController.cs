@@ -48,12 +48,17 @@ internal sealed class CaretController : IDisposable
 
     // 状态机（仅工作线程访问）
     private Point _lastPos = new(int.MinValue, int.MinValue);
-    private SymbolStyle? _lastStyle;
+    private InputState? _lastState;
     private double _lastScale;
-    private Bitmap? _lastBitmap;
     private bool _shown;
     private long _lastCaptureOkAt;
     private long _lastVisibleCheckAt;
+
+    // 状态位图预渲染池（每种状态 + 当前 DPI 缩放只渲染一次并缓存，中英/大小写切换时零 GC 分配零延迟）
+    private readonly Dictionary<InputState, (SymbolStyle Style, Bitmap Bitmap)> _stateBitmaps = new();
+    private int _cachedCornerPreference = -1;
+    private int _cachedEdgeStyle = -1;
+    private volatile bool _clearCacheRequested;
 
     public CaretController(AppConfig config, LayeredSymbolWindow window)
     {
@@ -95,6 +100,7 @@ internal sealed class CaretController : IDisposable
             _config = config;
             RebuildRules(config);
         }
+        _clearCacheRequested = true;
         _chain.Reset();
         Wake();
     }
@@ -238,6 +244,28 @@ internal sealed class CaretController : IDisposable
         }
 
         double scale = DpiScaleFor(caret.Left, caret.Top);
+
+        // 检查配置变更或 DPI 缩放变更：清理已缓存的状态位图
+        if (_clearCacheRequested ||
+            Math.Abs(scale - _lastScale) > 0.001 ||
+            config.ShapeCornerPreference != _cachedCornerPreference ||
+            config.ShapeEdgeStyle != _cachedEdgeStyle)
+        {
+            ClearBitmapCache();
+            _lastScale = scale;
+            _cachedCornerPreference = config.ShapeCornerPreference;
+            _cachedEdgeStyle = config.ShapeEdgeStyle;
+            _clearCacheRequested = false;
+        }
+
+        // 获取或预渲染当前状态位图（命中缓存则零分配、零延迟直接复用）
+        Bitmap? currentBitmap = GetOrRenderBitmap(state, style, config, scale);
+        if (currentBitmap is null)
+        {
+            HideSymbol();
+            return;
+        }
+
         // 偏移 = 全局偏移（所有状态共用）+ 规则追加偏移（v0.6.3 起样式级偏移已废弃）
         int offsetX = (int)Math.Round((rule.OffsetX + config.ScreenOffsetX) * scale);
         int offsetY = (int)Math.Round((rule.OffsetY + config.ScreenOffsetY) * scale);
@@ -246,7 +274,7 @@ internal sealed class CaretController : IDisposable
         int x = caret.Left + offsetX - pad;
         int y = (config.OriginBelow ? caret.Bottom : caret.Top) + offsetY - pad;
 
-        bool redraw = !ReferenceEquals(style, _lastStyle) || Math.Abs(scale - _lastScale) > 0.001 || _lastBitmap is null;
+        bool stateChanged = state != _lastState;
         bool moved = x != _lastPos.X || y != _lastPos.Y;
 
         // 周期性核对符号窗口真实可见态（约每 2s）：外部最小化/“显示桌面”/句柄重建等会让内部标志
@@ -258,31 +286,38 @@ internal sealed class CaretController : IDisposable
                 _shown = false;
         }
 
-        // 注意：即使样式与位置都未变，只要当前是“隐藏”状态（曾 HideSymbol），也要重新显示
-        if (!redraw && !moved && _shown)
+        // 注意：即使状态与位置都未变，只要当前是“隐藏”状态（曾 HideSymbol），也要重新显示
+        if (!stateChanged && !moved && _shown)
             return;
 
-        if (redraw)
+        ShowAt(currentBitmap, x, y);
+        _lastState = state;
+        _lastPos = new Point(x, y);
+    }
+
+    private Bitmap? GetOrRenderBitmap(InputState state, SymbolStyle style, AppConfig config, double scale)
+    {
+        if (_stateBitmaps.TryGetValue(state, out var entry))
         {
-            Bitmap? fresh = SymbolRenderer.Render(style, config.ShapeCornerPreference, config.ShapeEdgeStyle, scale);
-            if (fresh is null)
-            {
-                HideSymbol();
-                return;
-            }
-            Bitmap? old = _lastBitmap;
-            _lastBitmap = fresh;
-            _lastStyle = style;
-            _lastScale = scale;
-            ShowAt(fresh, x, y);
-            old?.Dispose();
-        }
-        else
-        {
-            ShowAt(_lastBitmap!, x, y);
+            if (ReferenceEquals(entry.Style, style))
+                return entry.Bitmap;
+            // 样式实例被替换：释放旧位图重新生成
+            entry.Bitmap.Dispose();
+            _stateBitmaps.Remove(state);
         }
 
-        _lastPos = new Point(x, y);
+        Bitmap? fresh = SymbolRenderer.Render(style, config.ShapeCornerPreference, config.ShapeEdgeStyle, scale);
+        if (fresh is not null)
+            _stateBitmaps[state] = (style, fresh);
+        return fresh;
+    }
+
+    private void ClearBitmapCache()
+    {
+        foreach (var entry in _stateBitmaps.Values)
+            entry.Bitmap.Dispose();
+        _stateBitmaps.Clear();
+        _lastState = null;
     }
 
     // ---------------- 显示/隐藏 ----------------
@@ -390,8 +425,7 @@ internal sealed class CaretController : IDisposable
         {
             // 忽略等待失败
         }
-        _lastBitmap?.Dispose();
-        _lastBitmap = null;
+        ClearBitmapCache();
         _chain.Dispose();
         _wake.Dispose();
     }

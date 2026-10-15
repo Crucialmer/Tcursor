@@ -36,11 +36,20 @@ internal static class NativeMethods
     internal const int HTCAPTION = 2;
 
     // ---------------- dwmapi ----------------
-    /// <summary>DWM 窗口属性（Win11 圆角等；低版本调用失败即忽略）</summary>
+    /// <summary>DWM 窗口属性（Win11 圆角、云母/亚克力背景、深浅模式等；低版本调用失败即忽略）</summary>
     [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+    internal const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     internal const int DWMWA_WINDOW_CORNER_RADIUS = 33;
+    internal const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+
     internal const int DWMWCP_ROUND = 2;
+
+    internal const int DWMSBT_AUTO = 0;
+    internal const int DWMSBT_NONE = 1;
+    internal const int DWMSBT_MAINWINDOW = 2;        // Mica
+    internal const int DWMSBT_TRANSIENTWINDOW = 3;   // Acrylic
+    internal const int DWMSBT_TABBEDWINDOW = 4;      // Mica Alt
 
     // ---------------- imm32 ----------------
     [DllImport("imm32.dll")] internal static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);

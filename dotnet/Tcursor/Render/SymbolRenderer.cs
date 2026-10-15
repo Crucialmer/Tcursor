@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -214,7 +215,8 @@ internal static class SymbolRenderer
         g.DrawImage(mask, new Rectangle(0, 0, canvasW, canvasH), 0, 0, canvasW, canvasH, GraphicsUnit.Pixel, ia);
     }
 
-    /// <summary>对位图 alpha 通道做两遍盒模糊（近似高斯），用于柔和阴影</summary>
+    /// <summary>对位图 alpha 通道做两遍盒模糊（近似高斯），用于柔和阴影。
+    /// 优化：通过 ArrayPool 共享内存池租借工作数组，实现零 GC 堆内存分配。</summary>
     private static void BlurAlpha(Bitmap bmp, int radius)
     {
         if (radius <= 0)
@@ -222,14 +224,16 @@ internal static class SymbolRenderer
         int w = bmp.Width;
         int h = bmp.Height;
         var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        int stride = data.Stride;
+        int len = stride * h;
+        int pixelCount = w * h;
+
+        byte[] buf = ArrayPool<byte>.Shared.Rent(len);
+        float[] a = ArrayPool<float>.Shared.Rent(pixelCount);
+        float[] t = ArrayPool<float>.Shared.Rent(pixelCount);
         try
         {
-            int stride = data.Stride;
-            int len = stride * h;
-            var buf = new byte[len];
             Marshal.Copy(data.Scan0, buf, 0, len);
-            var a = new float[w * h];
-            var t = new float[w * h];
             for (int yy = 0; yy < h; yy++)
             {
                 int row = yy * stride;
@@ -257,6 +261,9 @@ internal static class SymbolRenderer
         }
         finally
         {
+            ArrayPool<byte>.Shared.Return(buf);
+            ArrayPool<float>.Shared.Return(a);
+            ArrayPool<float>.Shared.Return(t);
             bmp.UnlockBits(data);
         }
     }

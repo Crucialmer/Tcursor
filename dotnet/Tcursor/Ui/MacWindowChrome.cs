@@ -43,13 +43,41 @@ internal class MacDialogForm : Form
         return new RectangleF(16f * s, HeaderHeight / 2f - d / 2f, d, d);
     }
 
+    private RectangleF TrafficGroupRect()
+    {
+        float s = UiTheme.DpiScale(this);
+        float d = 12f * s;
+        float gap = 8f * s;
+        float totalW = d * 3f + gap * 2f;
+        return new RectangleF(16f * s - 3f * s, HeaderHeight / 2f - d / 2f - 3f * s, totalW + 6f * s, d + 6f * s);
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        ApplyDwmAttributes(UiTheme.IsDark);
+    }
+
+    /// <summary>更新窗口 DWM 属性（圆角 + 亚克力/云母材质 + 沉浸深浅模式同步）</summary>
+    internal void UpdateDwmTheme(bool dark)
+    {
+        if (IsHandleCreated)
+            ApplyDwmAttributes(dark);
+    }
+
+    private void ApplyDwmAttributes(bool dark)
+    {
         try
         {
             int pref = Win32.NativeMethods.DWMWCP_ROUND;   // Win11 圆角（低版本调用失败即忽略）
             _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_WINDOW_CORNER_RADIUS, ref pref, sizeof(int));
+
+            int darkVal = dark ? 1 : 0;
+            _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
+
+            // Win11 亚克力半透明磨砂材质（DWMSBT_TRANSIENTWINDOW = 3）
+            int backdrop = Win32.NativeMethods.DWMSBT_TRANSIENTWINDOW;
+            _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
         }
         catch (Exception ex)
         {
@@ -156,7 +184,7 @@ internal class MacDialogForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        bool hover = RedDotRect().Contains(e.Location);
+        bool hover = TrafficGroupRect().Contains(e.Location);
         if (hover != _redHover)
         {
             _redHover = hover;
