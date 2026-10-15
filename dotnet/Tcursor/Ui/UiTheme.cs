@@ -192,12 +192,12 @@ internal static class UiTheme
     /// <summary>等宽代码/机器数据字体（9pt 等宽）</summary>
     public static readonly Font FontMono = new(MonoFontName, 9.0f);
 
-    /// <summary>菜单标准字体（12px / 9.0pt 微软雅黑）</summary>
-    public static readonly Font FontMenu = new(MenuFontName, 9.0f);
-    /// <summary>菜单粗体（12px / 9.0pt 粗体 微软雅黑）</summary>
-    public static readonly Font FontMenuBold = new(MenuFontName, 9.0f, FontStyle.Bold);
-    /// <summary>菜单顶栏大标题（10.5pt Bold 700 微软雅黑，强化品牌视觉锚点）</summary>
-    public static readonly Font FontMenuHeader = new(MenuFontName, 10.5f, FontStyle.Bold);
+    /// <summary>菜单标准字体（13px / 9.75pt 微软雅黑）</summary>
+    public static readonly Font FontMenu = new(MenuFontName, 9.75f);
+    /// <summary>菜单粗体（13px / 9.75pt 粗体 微软雅黑）</summary>
+    public static readonly Font FontMenuBold = new(MenuFontName, 9.75f, FontStyle.Bold);
+    /// <summary>菜单顶栏大标题（15px / 11.25pt Bold 700 微软雅黑，强化品牌视觉锚点）</summary>
+    public static readonly Font FontMenuHeader = new(MenuFontName, 11.25f, FontStyle.Bold);
 
     /// <summary>大标题字体（关于窗口等强调用途；pt 尺寸随系统 DPI 由框架缩放）</summary>
     public static readonly Font FontTitle = new(PrimaryFontName, 17f, FontStyle.Bold);

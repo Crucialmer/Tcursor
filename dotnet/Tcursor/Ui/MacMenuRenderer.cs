@@ -22,10 +22,10 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         if (e.Item.Selected && e.Item.Enabled)
         {
             float s = UiTheme.DpiScale(e.ToolStrip);
-            float padX = Math.Max(4f, 5f * s);
-            float padY = Math.Max(1.5f, 2f * s);
+            float padX = Math.Max(5f, 6f * s);
+            float padY = Math.Max(2f, 2.5f * s);
             var rect = new RectangleF(padX, padY, e.Item.Width - padX * 2f, e.Item.Height - padY * 2f);
-            using var path = MacDraw.RoundedPath(rect, Math.Max(4f, 5.5f * s));
+            using var path = MacDraw.RoundedPath(rect, Math.Max(5f, 6f * s));
             using var brush = new SolidBrush(UiTheme.Current.MenuHighlightBack);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             e.Graphics.FillPath(brush, path);
@@ -35,7 +35,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
         float s = UiTheme.DpiScale(e.ToolStrip);
-        float margin = Math.Max(12f, 16f * s);
+        float margin = Math.Max(14f, 18f * s);
         int y = e.Item.Height / 2;
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
         using var pen = new Pen(UiTheme.Current.MenuBorder, Math.Max(1f, s));

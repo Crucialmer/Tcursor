@@ -48,7 +48,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        return new Size(UiTheme.Dpi(Owner, 224), UiTheme.Dpi(Owner, 54));
+        return new Size(UiTheme.Dpi(Owner, 272), UiTheme.Dpi(Owner, 64));
     }
 
     public void RenderCard(Graphics g, ToolStrip? toolStrip)
@@ -57,24 +57,24 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
         float s = UiTheme.DpiScale(toolStrip);
-        float padX = Math.Max(4f, 5f * s);
-        float padY = Math.Max(2f, 3f * s);
+        float padX = Math.Max(5f, 6f * s);
+        float padY = Math.Max(3f, 4f * s);
         float w = Width - padX * 2f;
         float h = Height - padY * 2f;
         var cardRect = new RectangleF(padX, padY, w, h);
-        float corner = Math.Max(5f, 6.5f * s);
+        float corner = Math.Max(6f, 8f * s);
 
         bool isDark = UiTheme.IsDark;
         bool hover = Selected;
 
         // 卡片底色与边框（macOS 顶栏卡片：微差衬底 + 极细边框）
         Color cardBg = isDark
-            ? (hover ? Color.FromArgb(0x3C, 0x3C, 0x42) : Color.FromArgb(0x32, 0x32, 0x36))
-            : (hover ? Color.FromArgb(0xE8, 0xE8, 0xEE) : Color.FromArgb(0xF3, 0xF3, 0xF6));
+            ? (hover ? Color.FromArgb(0x3E, 0x3E, 0x44) : Color.FromArgb(0x32, 0x32, 0x36))
+            : (hover ? Color.FromArgb(0xEA, 0xEA, 0xF0) : Color.FromArgb(0xF4, 0xF4, 0xF7));
 
         Color cardBorder = isDark
-            ? Color.FromArgb(0x44, 0x44, 0x4A)
-            : Color.FromArgb(0xE0, 0xE0, 0xE6);
+            ? Color.FromArgb(0x48, 0x48, 0x4E)
+            : Color.FromArgb(0xDD, 0xDD, 0xE4);
 
         using (var path = MacDraw.RoundedPath(cardRect, corner))
         {
@@ -85,11 +85,11 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         }
 
         // 左侧图标徽章（Apple Accent Blue 连续圆角底块 + 白色 T 光标符号）
-        float badgeSize = Math.Max(24f, 30f * s);
-        float badgeX = cardRect.X + 8f * s;
+        float badgeSize = Math.Max(28f, 34f * s);
+        float badgeX = cardRect.X + 10f * s;
         float badgeY = cardRect.Y + (h - badgeSize) / 2f;
         var badgeRect = new RectangleF(badgeX, badgeY, badgeSize, badgeSize);
-        float badgeCorner = Math.Max(4f, 6f * s);
+        float badgeCorner = Math.Max(5f, 7f * s);
 
         using (var badgePath = MacDraw.RoundedPath(badgeRect, badgeCorner))
         {
@@ -98,7 +98,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         }
 
         // 绘制徽章内部的 "T" 字符
-        using (var tFont = new Font(UiTheme.PrimaryFontFamily, 11f * s, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var tFont = new Font(UiTheme.PrimaryFontFamily, 13f * s, FontStyle.Bold, GraphicsUnit.Pixel))
         {
             var tRect = new Rectangle((int)badgeRect.X, (int)badgeRect.Y, (int)badgeRect.Width, (int)badgeRect.Height);
             TextRenderer.DrawText(g, "T", tFont, tRect, Color.White,
@@ -106,37 +106,37 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         }
 
         // 右侧文字排版区域
-        float textX = badgeRect.Right + 9f * s;
-        float rightPadding = cardRect.Right - 8f * s;
+        float textX = badgeRect.Right + 11f * s;
+        float rightPadding = cardRect.Right - 10f * s;
 
         // 第一行：Tcursor（Bold 700 品牌名）+ 版本微标
-        int line1Y = (int)Math.Round(cardRect.Y + 7f * s);
+        int line1Y = (int)Math.Round(cardRect.Y + 8f * s);
         TextRenderer.DrawText(g, "Tcursor", UiTheme.FontMenuHeader,
             new Point((int)textX, line1Y), UiTheme.Current.Text, TextFormatFlags.NoPadding);
 
         Size brandSize = TextRenderer.MeasureText("Tcursor", UiTheme.FontMenuHeader);
-        int verX = (int)textX + brandSize.Width + (int)Math.Round(6f * s);
+        int verX = (int)textX + brandSize.Width + (int)Math.Round(8f * s);
         TextRenderer.DrawText(g, _versionText, UiTheme.FontCaption,
-            new Point(verX, line1Y + (int)Math.Round(2f * s)), UiTheme.Current.Dim, TextFormatFlags.NoPadding);
+            new Point(verX, line1Y + (int)Math.Round(3f * s)), UiTheme.Current.Dim, TextFormatFlags.NoPadding);
 
         // 第二行：状态呼吸圆点 + 状态文字
-        int line2Y = (int)Math.Round(cardRect.Y + 28f * s);
+        int line2Y = (int)Math.Round(cardRect.Y + 32f * s);
         Color dotColor = _paused ? UiTheme.Current.TrafficYellow : UiTheme.Current.TrafficGreen;
-        float dotDiameter = Math.Max(6f, 6.5f * s);
+        float dotDiameter = Math.Max(6.5f, 7.5f * s);
         float dotX = textX + 1f * s;
-        float dotY = line2Y + 3f * s;
+        float dotY = line2Y + 4f * s;
 
         using (var dotBrush = new SolidBrush(dotColor))
             g.FillEllipse(dotBrush, dotX, dotY, dotDiameter, dotDiameter);
 
         string statusText = _paused
-            ? "已暂停 · 光标提示隐藏"
-            : (_enabledRulesCount > 0 ? $"运行中 · {_enabledRulesCount} 条规则已启用" : "运行中 · 光标捕获就绪");
+            ? "已暂停 · 光标符号已隐藏"
+            : (_enabledRulesCount > 0 ? $"运行中 · 已启用 {_enabledRulesCount} 条规则" : "运行中 · 光标捕获就绪");
 
-        int statusX = (int)Math.Round(dotX + dotDiameter + 5f * s);
+        int statusX = (int)Math.Round(dotX + dotDiameter + 6f * s);
         int statusW = Math.Max(0, (int)(rightPadding - statusX));
         TextRenderer.DrawText(g, statusText, UiTheme.FontCaption,
-            new Rectangle(statusX, line2Y, statusW, (int)(16f * s)),
+            new Rectangle(statusX, line2Y, statusW, (int)(18f * s)),
             UiTheme.Current.Dim,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
     }
