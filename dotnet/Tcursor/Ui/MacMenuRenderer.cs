@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
 
 namespace Tcursor.Ui;
 
@@ -9,6 +11,12 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         : base(new MacMenuColors())
     {
         RoundedEdges = false;
+    }
+
+    /// <summary>清空系统默认左侧灰色图像边栏，保证整个菜单底色一体纯净</summary>
+    protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
+    {
+        // 不绘制灰色槽条，保持通透
     }
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
@@ -23,11 +31,11 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         {
             float s = UiTheme.DpiScale(e.ToolStrip);
             float padX = Math.Max(5f, 6f * s);
-            float padY = Math.Max(2f, 2.5f * s);
+            float padY = Math.Max(2f, 2f * s);
             var rect = new RectangleF(padX, padY, e.Item.Width - padX * 2f, e.Item.Height - padY * 2f);
             using var path = MacDraw.RoundedPath(rect, Math.Max(5f, 6f * s));
             using var brush = new SolidBrush(UiTheme.Current.MenuHighlightBack);
-            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.FillPath(brush, path);
         }
     }
@@ -35,10 +43,10 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
         float s = UiTheme.DpiScale(e.ToolStrip);
-        float margin = Math.Max(14f, 18f * s);
+        float margin = Math.Max(12f, 14f * s);
         int y = e.Item.Height / 2;
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
-        using var pen = new Pen(UiTheme.Current.MenuBorder, Math.Max(1f, s));
+        e.Graphics.SmoothingMode = SmoothingMode.None;
+        using var pen = new Pen(UiTheme.Current.MenuBorder, Math.Max(1f, 1f * s));
         e.Graphics.DrawLine(pen, margin, y, e.Item.Width - margin, y);
     }
 
@@ -53,42 +61,64 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         if (e.Item is MacMenuHeaderItem)
             return;
 
+        float s = UiTheme.DpiScale(e.ToolStrip);
+        // 统一基准缩进列（38px 标尺）：与左侧对勾保持 12px+ 优雅间距，消除文本偏左感
+        float textX = Math.Max(34f, 38f * s);
+        var textRect = new Rectangle(
+            (int)Math.Round(textX),
+            0,
+            Math.Max(0, (int)Math.Round(e.Item.Width - textX - 12f * s)),
+            e.Item.Height);
+
         UiPalette p = UiTheme.Current;
-        e.TextColor = !e.Item.Enabled
+        Color textColor = !e.Item.Enabled
             ? p.Dim
             : e.Item.Selected
                 ? p.MenuHighlightText
                 : p.MenuText;
-        e.TextFormat = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.SingleLine;
-        base.OnRenderItemText(e);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.Text,
+            e.TextFont,
+            textRect,
+            textColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
     }
 
-    /// <summary>勾选标记改为矢量对勾（无底块，选中态随文本反白，macOS 观感）</summary>
+    /// <summary>勾选标记改为矢量对勾（居中于胶囊内部，距左 14px，选中态纯白反白，macOS 原生观感）</summary>
     protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
     {
         if (e.Item is MacMenuHeaderItem)
             return;
 
+        float s = UiTheme.DpiScale(e.ToolStrip);
         Graphics g = e.Graphics;
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        Rectangle r = e.ImageRectangle;
-        float s = Math.Max(1f, r.Height / 20f);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        // 垂直居中、距左 14px，完整显示在胶囊内部
+        float checkW = Math.Max(10f, 12f * s);
+        float checkH = Math.Max(8f, 10f * s);
+        float x = Math.Max(12f, 14f * s);
+        float y = (e.Item.Height - checkH) / 2f;
+
         Color checkColor = !e.Item.Enabled
             ? UiTheme.Current.Dim
             : e.Item.Selected
                 ? UiTheme.Current.MenuHighlightText   // 浅色/深色选中态胶囊下纯白反白 (White Indicator)
                 : UiTheme.Current.Accent;             // 未选中态为 Apple 原厂高饱和系统蓝
-        using var pen = new Pen(checkColor, Math.Max(1.6f, 2.2f * s))
+
+        using var pen = new Pen(checkColor, Math.Max(1.8f, 2.2f * s))
         {
-            StartCap = System.Drawing.Drawing2D.LineCap.Round,
-            EndCap = System.Drawing.Drawing2D.LineCap.Round,
-            LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round,
         };
         var pts = new[]
         {
-            new PointF(r.X + 3.5f * s, r.Y + r.Height * 0.52f),
-            new PointF(r.X + r.Width * 0.42f, r.Y + r.Height * 0.72f),
-            new PointF(r.X + r.Width - 3f * s, r.Y + r.Height * 0.28f),
+            new PointF(x, y + checkH * 0.48f),
+            new PointF(x + checkW * 0.38f, y + checkH),
+            new PointF(x + checkW, y + 1f * s),
         };
         g.DrawLines(pen, pts);
     }

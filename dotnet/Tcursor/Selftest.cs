@@ -222,6 +222,51 @@ internal static class Selftest
                 sb.AppendLine("window-info: FAIL " + ex.Message);
             }
 
+            // 托盘右键菜单渲染验证（浅色与深色）
+            try
+            {
+                using var hostForm = new Form { Size = new Size(400, 500), StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+                _ = hostForm.Handle;
+
+                void RenderMenuSample(bool isDark, string fileName)
+                {
+                    UiTheme.Apply(isDark);
+                    using var testMenu = new MacContextMenuStrip();
+                    var headerItem = new MacMenuHeaderItem();
+                    headerItem.UpdateStatus(false, 3);
+                    testMenu.Items.Add(headerItem);
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("暂停") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    var startupItem = new ToolStripMenuItem("开机自启动") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6), Checked = true };
+                    testMenu.Items.Add(startupItem);
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("光标符号设置…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("白名单规则…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("窗口信息…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("打开配置文件") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("检查更新…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+
+                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, 268), UiTheme.Dpi(testMenu, 58));
+                    testMenu.Show(hostForm, 0, 0);
+                    Application.DoEvents();
+                    using var menuBmp = new Bitmap(testMenu.Width, testMenu.Height);
+                    testMenu.DrawToBitmap(menuBmp, new Rectangle(0, 0, testMenu.Width, testMenu.Height));
+                    menuBmp.Save(Path.Combine(outDir, fileName), ImageFormat.Png);
+                    testMenu.Close();
+                }
+
+                RenderMenuSample(false, "tray-menu-light.png");
+                RenderMenuSample(true, "tray-menu-dark.png");
+                sb.AppendLine("tray-menu: OK -> tray-menu-light.png / tray-menu-dark.png");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("tray-menu: FAIL " + ex.Message);
+            }
+
             sb.AppendLine("RESULT: OK");
             File.WriteAllText(Path.Combine(outDir, "selftest.txt"), sb.ToString());
             return 0;
