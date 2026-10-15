@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using Tcursor.Core;
 
 namespace Tcursor.Ui;
 
@@ -18,8 +19,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
     {
         AutoSize = false;
         ToolTipText = "点击打开光标符号设置…";
-        var ver = typeof(MacMenuHeaderItem).Assembly.GetName().Version;
-        _versionText = ver is not null ? $"v{ver.Major}.{ver.Minor}" : "v2.5";
+        _versionText = $"v{AppInfo.Version}";
     }
 
     protected override void OnMouseEnter(EventArgs e)
