@@ -19,6 +19,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _toggleItem;
     private readonly ToolStripMenuItem _startupItem;
     private readonly ToolStripMenuItem _updateItem;
+    private readonly MacMenuHeaderItem _brandHeader;
     private readonly SynchronizationContext _sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
     private WindowInfoForm? _windowInfoForm;
     private readonly ContextMenuStrip _menu;
@@ -44,8 +45,11 @@ internal sealed class TrayApp : ApplicationContext
         _controller = new CaretController(_config, _symbolWindow);
         _watcher = new ForegroundWatcher(_controller.Wake);
 
+        _brandHeader = new MacMenuHeaderItem();
+        _brandHeader.Click += (_, _) => OpenSettings();
+
         ToolStripMenuItem MakeItem(string text, EventHandler? onClick = null)
-            => new(text, null, onClick) { Font = UiTheme.Font, Padding = new Padding(4, 3, 4, 3) };
+            => new(text, null, onClick) { Font = UiTheme.FontMenu, Padding = new Padding(4, 3, 4, 3) };
 
         _toggleItem = MakeItem("暂停", (_, _) => TogglePause());
         _startupItem = MakeItem("开机自启动", (_, _) => ToggleStartup());
@@ -56,7 +60,7 @@ internal sealed class TrayApp : ApplicationContext
             Renderer = new MacMenuRenderer(),
             ShowImageMargin = false,
             ShowCheckMargin = true,
-            Font = UiTheme.Font,
+            Font = UiTheme.FontMenu,
             Padding = new Padding(2, 4, 2, 4),
         };
         _menu = menu;
@@ -82,8 +86,11 @@ internal sealed class TrayApp : ApplicationContext
                 _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
             }
             catch { }
+            _brandHeader.UpdateStatus(_paused, _config.Rules.Count(r => r.Enabled));
         };
 
+        menu.Items.Add(_brandHeader);
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 3, 0, 3) });
         menu.Items.Add(_toggleItem);
         menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 3, 0, 3) });
         menu.Items.Add(MakeItem("光标符号设置…", (_, _) => OpenSettings()));
@@ -387,6 +394,7 @@ internal sealed class TrayApp : ApplicationContext
         _toggleItem.Text = _paused ? "恢复" : "暂停";
         _tray.Text = _paused ? "Tcursor - 已暂停" : "Tcursor - 光标符号";
         _tray.Icon = _paused ? _iconPaused : _iconRunning;   // 复用缓存图标（退出时统一释放，避免每次切换泄漏一个图标句柄）
+        _brandHeader.UpdateStatus(_paused, _config.Rules.Count(r => r.Enabled));
     }
 
     private void OpenSettings()
@@ -408,6 +416,7 @@ internal sealed class TrayApp : ApplicationContext
         ConfigStore.Save(_config);
         Log.SetEnabled(_config.LogEnabled);
         _controller.UpdateConfig(_config);
+        _brandHeader.UpdateStatus(_paused, _config.Rules.Count(r => r.Enabled));
     }
 
     private void OpenConfigFile()
@@ -491,7 +500,12 @@ internal sealed class TrayApp : ApplicationContext
             CheckForUpdates(manual: true);
     }
 
-    private void OnThemeChanged() => _menu.Invalidate();
+    private void OnThemeChanged()
+    {
+        _tray.Icon = _paused ? _iconPaused : _iconRunning;
+        _brandHeader.Invalidate();
+        _menu.Invalidate(true);
+    }
 
     private void ExitApp()
     {

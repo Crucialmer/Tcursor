@@ -113,7 +113,7 @@ internal sealed class UiPalette
         MenuBack = Color.FromArgb(0x2A, 0x2A, 0x2C),
         MenuBorder = Color.FromArgb(0x3C, 0x3C, 0x3E),
         MenuText = Color.FromArgb(0xF2, 0xF2, 0xF7),
-        MenuHighlightBack = Color.FromArgb(0x0A, 0x84, 0xFF),
+        MenuHighlightBack = Color.FromArgb(34, 255, 255, 255), // macOS 原厂风格：微光白半透明胶囊 rgba(255, 255, 255, 34)
         MenuHighlightText = Color.White,
     };
 }
@@ -129,6 +129,9 @@ internal static class UiTheme
 
     private static readonly string PrimaryFontName = ResolveFontFamily();
     private static readonly string MonoFontName = ResolveMonoFamily();
+    private static readonly string MenuFontName = ResolveMenuFontFamily();
+
+    public static string PrimaryFontFamily => PrimaryFontName;
 
     private static string ResolveFontFamily()
     {
@@ -142,6 +145,22 @@ internal static class UiTheme
         {
             return "Microsoft YaHei UI";
         }
+    }
+
+    private static string ResolveMenuFontFamily()
+    {
+        // 优先微软雅黑 UI（Microsoft YaHei UI），笔画端庄规整，呈现典雅标准的简体中文排版
+        string[] candidates = { "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI" };
+        foreach (var name in candidates)
+        {
+            try
+            {
+                using var test = new FontFamily(name);
+                return name;
+            }
+            catch { }
+        }
+        return PrimaryFontName;
     }
 
     private static string ResolveMonoFamily()
@@ -172,6 +191,13 @@ internal static class UiTheme
     public static readonly Font FontCaptionBold = new(PrimaryFontName, 8.5f, FontStyle.Bold);
     /// <summary>等宽代码/机器数据字体（9pt 等宽）</summary>
     public static readonly Font FontMono = new(MonoFontName, 9.0f);
+
+    /// <summary>菜单标准字体（12px / 9.0pt 微软雅黑）</summary>
+    public static readonly Font FontMenu = new(MenuFontName, 9.0f);
+    /// <summary>菜单粗体（12px / 9.0pt 粗体 微软雅黑）</summary>
+    public static readonly Font FontMenuBold = new(MenuFontName, 9.0f, FontStyle.Bold);
+    /// <summary>菜单顶栏大标题（10.5pt Bold 700 微软雅黑，强化品牌视觉锚点）</summary>
+    public static readonly Font FontMenuHeader = new(MenuFontName, 10.5f, FontStyle.Bold);
 
     /// <summary>大标题字体（关于窗口等强调用途；pt 尺寸随系统 DPI 由框架缩放）</summary>
     public static readonly Font FontTitle = new(PrimaryFontName, 17f, FontStyle.Bold);

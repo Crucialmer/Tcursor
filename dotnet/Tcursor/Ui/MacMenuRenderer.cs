@@ -13,6 +13,12 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
     {
+        if (e.Item is MacMenuHeaderItem header)
+        {
+            header.RenderCard(e.Graphics, e.ToolStrip);
+            return;
+        }
+
         if (e.Item.Selected && e.Item.Enabled)
         {
             float s = UiTheme.DpiScale(e.ToolStrip);
@@ -44,6 +50,9 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
+        if (e.Item is MacMenuHeaderItem)
+            return;
+
         UiPalette p = UiTheme.Current;
         e.TextColor = !e.Item.Enabled
             ? p.Dim
@@ -57,6 +66,9 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
     /// <summary>勾选标记改为矢量对勾（无底块，选中态随文本反白，macOS 观感）</summary>
     protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
     {
+        if (e.Item is MacMenuHeaderItem)
+            return;
+
         Graphics g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         Rectangle r = e.ImageRectangle;
@@ -64,8 +76,8 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         Color checkColor = !e.Item.Enabled
             ? UiTheme.Current.Dim
             : e.Item.Selected
-                ? UiTheme.Current.MenuHighlightText
-                : UiTheme.Current.MenuHighlightBack;
+                ? UiTheme.Current.MenuHighlightText   // 浅色/深色选中态胶囊下纯白反白 (White Indicator)
+                : UiTheme.Current.Accent;             // 未选中态为 Apple 原厂高饱和系统蓝
         using var pen = new Pen(checkColor, Math.Max(1.6f, 2.2f * s))
         {
             StartCap = System.Drawing.Drawing2D.LineCap.Round,
