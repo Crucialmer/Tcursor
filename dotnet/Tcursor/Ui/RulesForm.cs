@@ -38,9 +38,33 @@ internal sealed class RulesForm : MacDialogForm
         _list.BorderStyle = BorderStyle.None;   // 卡片已提供边界，去掉列表自带边框
         _list.BackColor = UiTheme.CardBg;
         // 整表自绘：复选框列用 macOS 复选框（原生复选框在深色主题下会画出亮白方块），
-        // 文字列沿用主题色；表头留给系统绘制（随系统深浅色）。
+        // 文字列沿用主题色；表头采用扁平无边框设计与卡片融为一体。
         _list.OwnerDraw = true;
-        _list.DrawColumnHeader += (_, e) => e.DrawDefault = true;
+        _list.DrawColumnHeader += (_, e) =>
+        {
+            Graphics g = e.Graphics;
+            Rectangle bounds = e.Bounds;
+
+            // macOS 极简扁平表头：与卡片背景融合，去掉 Windows 原生 3D 凸起边缘
+            using (var brush = new SolidBrush(UiTheme.CardBg))
+                g.FillRectangle(brush, bounds);
+
+            // 底部 1px 细分割线
+            using (var linePen = new Pen(UiTheme.CardBorder, 1f))
+                g.DrawLine(linePen, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+
+            if (string.IsNullOrEmpty(e.Header?.Text))
+                return;
+
+            float s = UiTheme.DpiScale(_list);
+            var textRect = new Rectangle(
+                bounds.X + (int)Math.Round(3f * s), bounds.Y,
+                Math.Max(0, bounds.Width - (int)Math.Round(6f * s)), bounds.Height);
+
+            TextRenderer.DrawText(g, e.Header.Text, UiTheme.FontCaptionBold, textRect, UiTheme.Dim,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
+                TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
         _list.DrawItem += (_, e) =>
         {
             if (e.Item is null)
@@ -79,6 +103,7 @@ internal sealed class RulesForm : MacDialogForm
         var hint = new Label
         {
             AutoSize = true,
+            Font = UiTheme.FontCaption,
             MaximumSize = new Size(780, 0),   // 值随 DPI 由框架缩放
             ForeColor = UiTheme.Dim,
             Margin = new Padding(0, 0, 0, 2),
@@ -291,7 +316,8 @@ internal sealed class RulesForm : MacDialogForm
         var bounds = new Rectangle(
             cellBounds.X + (int)Math.Round(2f * s), cellBounds.Y,
             Math.Max(0, cellBounds.Width - (int)Math.Round(4f * s)), cellBounds.Height);
-        TextRenderer.DrawText(g, text, _list.Font, bounds, selected ? Color.White : UiTheme.Text,
+        Font cellFont = (column >= 2 && column <= 5) ? UiTheme.FontMono : _list.Font;
+        TextRenderer.DrawText(g, text, cellFont, bounds, selected ? Color.White : UiTheme.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
             TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
@@ -349,6 +375,11 @@ internal sealed class RuleEditForm : MacDialogForm
             table.Controls.Add(control, 1, row);
             row++;
         }
+
+        _process.Inner.Font = UiTheme.FontMono;
+        _title.Inner.Font = UiTheme.FontMono;
+        _class.Inner.Font = UiTheme.FontMono;
+        _chain.Inner.Font = UiTheme.FontMono;
 
         AddRow("名称", _name);
         AddRow("进程正则（匹配进程名，可不带 .exe）", _process);

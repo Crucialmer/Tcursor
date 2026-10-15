@@ -2,3 +2,6 @@
 .vs/
 bin/
 obj/
+publish/
+release_pkg/
+*.zip

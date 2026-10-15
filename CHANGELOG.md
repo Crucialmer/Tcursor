@@ -1,5 +1,17 @@
 # 更新日志（Tcursor）
 
+## v2.4（2026-10-15，macOS 浮动药丸菜单 + 排版层级体系 + 等宽数据字段）
+
+**macOS 菜单与排版美学全面升级（macOS 15+ / macOS 26 视觉对标）**
+
+- **托盘菜单浮动圆角药丸高亮（Floating Pill Selection）**：托盘右键菜单彻底告别传统 Windows 贴边矩形反色条，升级为悬浮式圆角胶囊药丸（双向内缩 5px，5.5px 连续曲率圆角）；选中项搭配高对比纯白对勾与文本，高亮状态更加通透自然；
+- **内缩细发丝分割线（Indented Hairline Separators）**：菜单项之间的横向分割线双向内缩 16px，采用精细主题色半透明发丝线，彻底消除旧式 Windows 菜单的顶格穿透感；
+- **托盘右键菜单 DWM 原生圆角与深色自适应**：在 Windows 11 下为托盘弹出菜单底层句柄直接注入 `DWMWCP_ROUND`（大圆角）及 `DWMWA_USE_IMMERSIVE_DARK_MODE`，与 macOS 菜单的圆角轮廓和系统深浅色完美统一；
+- **彻底告别传统助记快捷键尾缀（Clean Accelerator-Free Labels）**：托盘右键菜单及窗体交互按钮全量剔除 Windows 时代的 `(&P)`、`(&S)`、`(&X)`、`(&A)`、`(&C)` 等机械助记符，采用如“添加为规则”、“拷贝进程名”、“关闭”等地道的 macOS 动作标签；
+- **专业级等宽字体展示（Monospace Technical Typography）**：窗口信息面板与规则编辑器中的机器数据字段（窗口进程名、根类名、焦点控件类名、进程路径、正则模式、捕获链等）全面接入 `UiTheme.FontMono`（优先 `Cascadia Mono` / `Consolas`），规则表格与代码配置一目了然；
+- **全套排版层级体系（Typography Hierarchy）**：建立分段大标题（`FontSectionTitle` 10.5pt 粗体）、正文（`Font` 9.5pt）、次级辅助说明与表头（`FontCaption` / `FontCaptionBold` 8.5pt）以及等宽数据（`FontMono` 9pt）的多层次字阶规范；
+- **极简扁平表头（Flat Table Header）**：白名单规则列表表头剥离 Windows 原生 3D 浮雕凸起边框，改用卡片融合平底与底部精细分割线，搭配静雅灰色粗体标题，完全贴合 macOS 现代设置面板。
+
 ## v2.3（2026-10-15，macOS 美学精修 + 零分配极速渲染）
 
 **性能优化：输入法状态切换零延迟与零 GC 堆内存分配（Zero-Allocation Hot Path）**

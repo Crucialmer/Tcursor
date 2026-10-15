@@ -555,7 +555,7 @@ internal sealed class MacCard : Panel
 
         if (!string.IsNullOrEmpty(Title))
         {
-            TextRenderer.DrawText(g, Title, UiTheme.FontBold,
+            TextRenderer.DrawText(g, Title, UiTheme.FontSectionTitle,
                 new Point(UiTheme.Dpi(this, 15), UiTheme.Dpi(this, 10)), UiTheme.SectionTitle, TextFormatFlags.NoPadding);
         }
     }

@@ -11,6 +11,37 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         RoundedEdges = false;
     }
 
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (e.Item.Selected && e.Item.Enabled)
+        {
+            float s = UiTheme.DpiScale(e.ToolStrip);
+            float padX = Math.Max(4f, 5f * s);
+            float padY = Math.Max(1.5f, 2f * s);
+            var rect = new RectangleF(padX, padY, e.Item.Width - padX * 2f, e.Item.Height - padY * 2f);
+            using var path = MacDraw.RoundedPath(rect, Math.Max(4f, 5.5f * s));
+            using var brush = new SolidBrush(UiTheme.Current.MenuHighlightBack);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(brush, path);
+        }
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        float s = UiTheme.DpiScale(e.ToolStrip);
+        float margin = Math.Max(12f, 16f * s);
+        int y = e.Item.Height / 2;
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
+        using var pen = new Pen(UiTheme.Current.MenuBorder, Math.Max(1f, s));
+        e.Graphics.DrawLine(pen, margin, y, e.Item.Width - margin, y);
+    }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        using var pen = new Pen(UiTheme.Current.MenuBorder, 1f);
+        e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+    }
+
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
         UiPalette p = UiTheme.Current;
@@ -19,17 +50,23 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
             : e.Item.Selected
                 ? p.MenuHighlightText
                 : p.MenuText;
+        e.TextFormat = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.SingleLine;
         base.OnRenderItemText(e);
     }
 
-    /// <summary>勾选标记改为矢量对勾（无底块，macOS 观感）</summary>
+    /// <summary>勾选标记改为矢量对勾（无底块，选中态随文本反白，macOS 观感）</summary>
     protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         Rectangle r = e.ImageRectangle;
         float s = Math.Max(1f, r.Height / 20f);
-        using var pen = new Pen(e.Item.Enabled ? UiTheme.Current.MenuHighlightBack : UiTheme.Current.Dim, Math.Max(1.6f, 2.4f * s))
+        Color checkColor = !e.Item.Enabled
+            ? UiTheme.Current.Dim
+            : e.Item.Selected
+                ? UiTheme.Current.MenuHighlightText
+                : UiTheme.Current.MenuHighlightBack;
+        using var pen = new Pen(checkColor, Math.Max(1.6f, 2.2f * s))
         {
             StartCap = System.Drawing.Drawing2D.LineCap.Round,
             EndCap = System.Drawing.Drawing2D.LineCap.Round,
@@ -37,7 +74,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         };
         var pts = new[]
         {
-            new PointF(r.X + 3f * s, r.Y + r.Height * 0.52f),
+            new PointF(r.X + 3.5f * s, r.Y + r.Height * 0.52f),
             new PointF(r.X + r.Width * 0.42f, r.Y + r.Height * 0.72f),
             new PointF(r.X + r.Width - 3f * s, r.Y + r.Height * 0.28f),
         };

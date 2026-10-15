@@ -13,14 +13,14 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly AppConfig _config;
     private readonly Action _applyConfig;
 
-    private readonly MacField _process = MakeField();
-    private readonly MacField _rootClass = MakeField();
-    private readonly MacField _focusClass = MakeField();
-    private readonly MacField _title = MakeField();
-    private readonly MacField _path = MakeField();
-    private readonly Label _status = new() { AutoSize = true, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
-    private readonly MacButton _addButton = new(accent: true) { Text = "添加为白名单规则(&A)", Width = 168, Height = 32, Enabled = false };
-    private readonly MacButton _copyButton = new() { Text = "复制进程名(&C)", Width = 130, Height = 32, Enabled = false };   // 无信息时可点却无动作 = 假按钮：与「添加」一致地先禁用
+    private readonly MacField _process = MakeField(mono: true);
+    private readonly MacField _rootClass = MakeField(mono: true);
+    private readonly MacField _focusClass = MakeField(mono: true);
+    private readonly MacField _title = MakeField(mono: false);
+    private readonly MacField _path = MakeField(mono: true);
+    private readonly Label _status = new() { AutoSize = true, Font = UiTheme.FontCaption, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
+    private readonly MacButton _addButton = new(accent: true) { Text = "添加为规则", Width = 110, Height = 32, Enabled = false };
+    private readonly MacButton _copyButton = new() { Text = "拷贝进程名", Width = 104, Height = 32, Enabled = false };   // 无信息时可点却无动作 = 假按钮：与「添加」一致地先禁用
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
     private const int PathCacheTtlMs = 3000;   // 进程路径缓存：MainModule 是跨进程模块查询，面板存活期间最贵的一项
 
@@ -70,6 +70,7 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             Text = "请切换到你想要获取窗口信息的窗口（自动实时读取；显示自己界面时保留上一次信息）",
             AutoSize = true,
+            Font = UiTheme.FontCaption,
             ForeColor = UiTheme.Dim,
             Margin = new Padding(3, 3, 3, 8),
         };
@@ -93,7 +94,7 @@ internal sealed class WindowInfoForm : MacDialogForm
         };
         _addButton.Click += (_, _) => AddRuleFromCurrent();
         _copyButton.Click += (_, _) => CopyProcessName();
-        var close = UiTheme.Button("关闭(&X)", width: 96);
+        var close = UiTheme.Button("关闭", width: 88);
         close.Click += (_, _) => Close();
         buttons.Controls.Add(_addButton);
         buttons.Controls.Add(_copyButton);
@@ -144,12 +145,18 @@ internal sealed class WindowInfoForm : MacDialogForm
         base.Dispose(disposing);
     }
 
-    private static MacField MakeField() => new(readOnly: true)
+    private static MacField MakeField(bool mono = false)
     {
-        Dock = DockStyle.Fill,
-        BackColor = UiTheme.WindowBg,   // 字段直接落在窗口底色上：圆角外的衬底与窗口一致
-        Margin = new Padding(3, 4, 3, 2),
-    };
+        var field = new MacField(readOnly: true)
+        {
+            Dock = DockStyle.Fill,
+            BackColor = UiTheme.WindowBg,   // 字段直接落在窗口底色上：圆角外的衬底与窗口一致
+            Margin = new Padding(3, 4, 3, 2),
+        };
+        if (mono)
+            field.Inner.Font = UiTheme.FontMono;
+        return field;
+    }
 
     /// <summary>窗口高度贴合内容（内容较少时不再留下大片空白）</summary>
     private void FitHeightToContent(TableLayoutPanel content)

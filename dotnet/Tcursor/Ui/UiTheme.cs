@@ -128,6 +128,7 @@ internal static class UiTheme
     public const float DesignDpi = 96f;
 
     private static readonly string PrimaryFontName = ResolveFontFamily();
+    private static readonly string MonoFontName = ResolveMonoFamily();
 
     private static string ResolveFontFamily()
     {
@@ -143,8 +144,34 @@ internal static class UiTheme
         }
     }
 
+    private static string ResolveMonoFamily()
+    {
+        // 优先 Cascadia Mono / Consolas 等现代等宽字体，用于展示类名、路径、状态码等数据
+        string[] candidates = { "Cascadia Mono", "Consolas", "Courier New" };
+        foreach (var name in candidates)
+        {
+            try
+            {
+                using var test = new FontFamily(name);
+                return name;
+            }
+            catch { }
+        }
+        return FontFamily.GenericMonospace.Name;
+    }
+
+    /// <summary>主正文字体（9.5pt 常规）</summary>
     public static readonly Font Font = new(PrimaryFontName, 9.5f);
+    /// <summary>主粗体（9.5pt 粗体）</summary>
     public static readonly Font FontBold = new(PrimaryFontName, 9.5f, FontStyle.Bold);
+    /// <summary>分段卡片标题（10.5pt 粗体，强化结构层级）</summary>
+    public static readonly Font FontSectionTitle = new(PrimaryFontName, 10.5f, FontStyle.Bold);
+    /// <summary>次级辅助说明/微标签/表头（8.5pt 常规）</summary>
+    public static readonly Font FontCaption = new(PrimaryFontName, 8.5f);
+    /// <summary>次级辅助说明/微标签/表头粗体（8.5pt 粗体）</summary>
+    public static readonly Font FontCaptionBold = new(PrimaryFontName, 8.5f, FontStyle.Bold);
+    /// <summary>等宽代码/机器数据字体（9pt 等宽）</summary>
+    public static readonly Font FontMono = new(MonoFontName, 9.0f);
 
     /// <summary>大标题字体（关于窗口等强调用途；pt 尺寸随系统 DPI 由框架缩放）</summary>
     public static readonly Font FontTitle = new(PrimaryFontName, 17f, FontStyle.Bold);
@@ -181,13 +208,13 @@ internal static class UiTheme
     // ---- DPI 工具（96 DPI 设计基线）----
 
     /// <summary>控件当前 DPI 相对设计基线（96）的缩放比。</summary>
-    public static float DpiScale(Control control) => control.DeviceDpi / DesignDpi;
+    public static float DpiScale(Control? control) => (control?.DeviceDpi ?? 96) / DesignDpi;
 
     /// <summary>设计像素 → 控件当前 DPI 像素（自绘度量/像素常量用）。</summary>
-    public static int Dpi(Control control, int px) => (int)Math.Round(px * DpiScale(control));
+    public static int Dpi(Control? control, int px) => (int)Math.Round(px * DpiScale(control));
 
     /// <summary>设计像素 → 控件当前 DPI 像素（浮点绘制坐标用）。</summary>
-    public static float DpiF(Control control, float px) => (float)(px * DpiScale(control));
+    public static float DpiF(Control? control, float px) => (float)(px * DpiScale(control));
 
     /// <summary>创建主题按钮（macOS 圆角风格）</summary>
     public static MacButton Button(string text, bool accent = false, int width = 110)

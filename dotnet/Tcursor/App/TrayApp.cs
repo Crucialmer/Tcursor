@@ -44,29 +44,61 @@ internal sealed class TrayApp : ApplicationContext
         _controller = new CaretController(_config, _symbolWindow);
         _watcher = new ForegroundWatcher(_controller.Wake);
 
-        _toggleItem = new ToolStripMenuItem("暂停(&P)", null, (_, _) => TogglePause());
-        _startupItem = new ToolStripMenuItem("开机自启动(&A)", null, (_, _) => ToggleStartup())
+        ToolStripMenuItem MakeItem(string text, EventHandler? onClick = null)
+            => new(text, null, onClick) { Font = UiTheme.Font, Padding = new Padding(4, 3, 4, 3) };
+
+        _toggleItem = MakeItem("暂停", (_, _) => TogglePause());
+        _startupItem = MakeItem("开机自启动", (_, _) => ToggleStartup());
+        _startupItem.Checked = StartupManager.IsEnabled();
+
+        var menu = new ContextMenuStrip
         {
-            Checked = StartupManager.IsEnabled(),
+            Renderer = new MacMenuRenderer(),
+            ShowImageMargin = false,
+            ShowCheckMargin = true,
+            Font = UiTheme.Font,
+            Padding = new Padding(2, 4, 2, 4),
+        };
+        _menu = menu;
+        menu.HandleCreated += (_, _) =>
+        {
+            try
+            {
+                int pref = Win32.NativeMethods.DWMWCP_ROUND;
+                _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_WINDOW_CORNER_RADIUS, ref pref, sizeof(int));
+                int darkVal = UiTheme.IsDark ? 1 : 0;
+                _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+            }
+        };
+        menu.Opening += (_, _) =>
+        {
+            try
+            {
+                int darkVal = UiTheme.IsDark ? 1 : 0;
+                _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
+            }
+            catch { }
         };
 
-        var menu = new ContextMenuStrip { Renderer = new MacMenuRenderer(), ShowImageMargin = false, ShowCheckMargin = true };
-        _menu = menu;
         menu.Items.Add(_toggleItem);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("光标符号设置(&S)…", null, (_, _) => OpenSettings());
-        menu.Items.Add("白名单规则(&W)…", null, (_, _) => OpenRules());
-        menu.Items.Add("窗口信息(&I)…", null, (_, _) => OpenWindowInfo());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("打开配置文件(&C)", null, (_, _) => OpenConfigFile());
-        menu.Items.Add("打开数据目录(&D)", null, (_, _) => OpenDataDir());
-        menu.Items.Add("重新加载配置(&L)", null, (_, _) => ReloadConfig());
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 3, 0, 3) });
+        menu.Items.Add(MakeItem("光标符号设置…", (_, _) => OpenSettings()));
+        menu.Items.Add(MakeItem("白名单规则…", (_, _) => OpenRules()));
+        menu.Items.Add(MakeItem("窗口信息…", (_, _) => OpenWindowInfo()));
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 3, 0, 3) });
+        menu.Items.Add(MakeItem("打开配置文件", (_, _) => OpenConfigFile()));
+        menu.Items.Add(MakeItem("打开数据目录", (_, _) => OpenDataDir()));
+        menu.Items.Add(MakeItem("重新加载配置", (_, _) => ReloadConfig()));
         menu.Items.Add(_startupItem);
-        menu.Items.Add(new ToolStripSeparator());
-        _updateItem = new ToolStripMenuItem("检查更新(&U)…", null, (_, _) => OnUpdateMenu());
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 3, 0, 3) });
+        _updateItem = MakeItem("检查更新…", (_, _) => OnUpdateMenu());
         menu.Items.Add(_updateItem);
-        menu.Items.Add("关于(&B)…", null, (_, _) => ShowAbout());
-        menu.Items.Add("退出(&X)", null, (_, _) => ExitApp());
+        menu.Items.Add(MakeItem("关于 Tcursor…", (_, _) => ShowAbout()));
+        menu.Items.Add(MakeItem("退出 Tcursor", (_, _) => ExitApp()));
 
         _iconRunning = TrayIconFactory.Create(false);
         _iconPaused = TrayIconFactory.Create(true);
@@ -216,7 +248,7 @@ internal sealed class TrayApp : ApplicationContext
                 _downloading = false;
                 _updateItem.Enabled = true;
                 if (_preparedPackage is null)
-                    _updateItem.Text = "检查更新(&U)…";
+                    _updateItem.Text = "检查更新…";
             }, null);
         }
     }
@@ -238,7 +270,7 @@ internal sealed class TrayApp : ApplicationContext
                 Interlocked.Exchange(ref _checkInFlight, 0);
                 _updateItem.Enabled = true;
                 if (!_downloading)
-                    _updateItem.Text = "检查更新(&U)…";
+                    _updateItem.Text = "检查更新…";
                 OnChecked(info, error, manual);
             }, null);
         });
@@ -352,7 +384,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         _paused = !_paused;
         _controller.SetPaused(_paused);
-        _toggleItem.Text = _paused ? "恢复(&R)" : "暂停(&P)";
+        _toggleItem.Text = _paused ? "恢复" : "暂停";
         _tray.Text = _paused ? "Tcursor - 已暂停" : "Tcursor - 光标符号";
         _tray.Icon = _paused ? _iconPaused : _iconRunning;   // 复用缓存图标（退出时统一释放，避免每次切换泄漏一个图标句柄）
     }
