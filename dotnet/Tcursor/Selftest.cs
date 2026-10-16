@@ -283,15 +283,11 @@ internal static class Selftest
 
                     using var f1 = new SettingsForm(config);
                     f1.SelectTab(1);
-                    RenderFormSample(f1, $"form-settings-appearance{suffix}.png");
+                    RenderFormSample(f1, $"form-settings-behavior{suffix}.png");
 
                     using var f2 = new SettingsForm(config);
                     f2.SelectTab(2);
-                    RenderFormSample(f2, $"form-settings-behavior{suffix}.png");
-
-                    using var f3 = new SettingsForm(config);
-                    f3.SelectTab(3);
-                    RenderFormSample(f3, $"form-settings-system{suffix}.png");
+                    RenderFormSample(f2, $"form-settings-system{suffix}.png");
                 }
 
                 UiTheme.Apply(false);
