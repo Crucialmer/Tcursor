@@ -27,12 +27,6 @@ internal sealed class SettingsForm : MacDialogForm
         ("特大圆角 (40%)", 4), ("超大圆角 (45%)", 5), ("胶囊 (50%)", 6),
     };
 
-    private static readonly (string Text, int Value)[] StateCornerOptions =
-    {
-        ("跟随全局", -1), ("直角 (0%)", 0), ("小圆角 (16%)", 1), ("中圆角 (25%)", 2),
-        ("大圆角 (33%)", 3), ("特大圆角 (40%)", 4), ("超大圆角 (45%)", 5), ("胶囊 (50%)", 6),
-    };
-
     private static readonly (string Text, int Value)[] EdgeOptions =
     {
         ("无 (默认)", 0), ("细描边", 1), ("内高光", 2), ("微立体", 3), ("柔和阴影", 4),
@@ -55,8 +49,6 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly MacNumberField _shapeHeight = new() { Minimum = 2, Maximum = 500, Width = 80 };
     private readonly MacSlider _transparency = new() { Minimum = 0, Maximum = 255, Value = 255, Width = 160, BackColor = UiTheme.CardBg };
     private readonly Label _transparencyLabel = new() { AutoSize = true, ForeColor = UiTheme.Text, BackColor = UiTheme.CardBg };
-    private readonly MacRadio[] _stateCornerButtons;
-    private readonly MacCheck _syncAllStatesCorner = new() { Text = "同步应用至所有状态", Checked = true, BackColor = UiTheme.CardBg };
 
     // 各分页面板引用（便于 DPI 缩放与自适应布局维持行高，彻底防止挤压遮挡）
     private TableLayoutPanel? _symbolsLeftCol;
@@ -122,7 +114,6 @@ internal sealed class SettingsForm : MacDialogForm
 
         _cornerButtons = BuildRadioGroup(CornerOptions, out FlowLayoutPanel cornerFlow);
         _edgeButtons = BuildRadioGroup(EdgeOptions, out FlowLayoutPanel edgeFlow);
-        _stateCornerButtons = BuildRadioGroup(StateCornerOptions, out FlowLayoutPanel stateCornerFlow);
 
         // 顶层主网格
         var root = new TableLayoutPanel
@@ -145,7 +136,7 @@ internal sealed class SettingsForm : MacDialogForm
         root.Controls.Add(_segmented, 0, 0);
 
         // 初始化三大分页面板（符号与外观合并，实时预览全部样式与光效）
-        _panes[0] = BuildSymbolsAndAppearancePane(cornerFlow, edgeFlow, stateCornerFlow);
+        _panes[0] = BuildSymbolsAndAppearancePane(cornerFlow, edgeFlow);
         _panes[1] = BuildBehaviorPane();
         _panes[2] = BuildSystemPane();
 
@@ -221,13 +212,10 @@ internal sealed class SettingsForm : MacDialogForm
             if (!_loading) { CommitCurrent(); UpdatePreview(); }
         };
 
-        foreach (var radio in _stateCornerButtons)
-            radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) { CommitCurrent(); UpdatePreview(); } };
         foreach (var radio in _cornerButtons)
             radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) UpdatePreview(); };
         foreach (var radio in _edgeButtons)
             radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) UpdatePreview(); };
-        _syncAllStatesCorner.CheckedChanged += (_, _) => { if (!_loading && _syncAllStatesCorner.Checked) { CommitCurrent(); UpdatePreview(); } };
 
         ShowPane(0);
         LoadValues();
@@ -251,7 +239,7 @@ internal sealed class SettingsForm : MacDialogForm
             _panes[i].Visible = i == index;
     }
 
-    private Panel BuildSymbolsAndAppearancePane(FlowLayoutPanel cornerFlow, FlowLayoutPanel edgeFlow, FlowLayoutPanel stateCornerFlow)
+    private Panel BuildSymbolsAndAppearancePane(FlowLayoutPanel cornerFlow, FlowLayoutPanel edgeFlow)
     {
         var panel = new TableLayoutPanel
         {
@@ -338,10 +326,11 @@ internal sealed class SettingsForm : MacDialogForm
         _offsetY.Width = 52;
         offsetFlow.Controls.Add(_offsetY);
 
-        posTable.RowCount = 3;
+        posTable.RowCount = 4;
         posTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         posTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         posTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        posTable.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         posTable.Controls.Add(new Label { Text = "锚点位置", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 4, 4, 4), BackColor = UiTheme.CardBg }, 0, 0);
         posTable.Controls.Add(posRadios, 1, 0);
         posTable.Controls.Add(new Label { Text = "全局偏移", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 6, 4, 4), BackColor = UiTheme.CardBg }, 0, 1);
@@ -374,8 +363,8 @@ internal sealed class SettingsForm : MacDialogForm
         };
         _symbolsRightCol = rightCol;
         rightCol.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 95)));
-        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 310)));
+        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 160)));
+        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 195)));
         rightCol.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         // 右上：实时视觉预览
@@ -431,28 +420,6 @@ internal sealed class SettingsForm : MacDialogForm
         _transparencyLabel.Margin = new Padding(8, 6, 0, 0);
         transFlow.Controls.Add(_transparencyLabel);
         AddStyleRow("不透明度", transFlow);
-
-        var cornerActionFlow = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 2, 0, 0),
-        };
-        _syncAllStatesCorner.Margin = new Padding(0, 4, 10, 0);
-        cornerActionFlow.Controls.Add(_syncAllStatesCorner);
-        var applyAllBtn = UiTheme.Button("应用至全部状态", width: 110);
-        applyAllBtn.Height = 26;
-        applyAllBtn.Click += (_, _) =>
-        {
-            _syncAllStatesCorner.Checked = true;
-            CommitCurrent();
-            UpdatePreview();
-        };
-        cornerActionFlow.Controls.Add(applyAllBtn);
-        stateCornerFlow.Controls.Add(cornerActionFlow);
-
-        AddStyleRow("形状圆角", stateCornerFlow);
 
         styleCard.Controls.Add(styleTable);
         rightCol.Controls.Add(styleCard, 0, 1);
@@ -663,8 +630,8 @@ internal sealed class SettingsForm : MacDialogForm
         }
         if (_symbolsRightCol is not null && _symbolsRightCol.RowStyles.Count >= 3)
         {
-            _symbolsRightCol.RowStyles[0].Height = UiTheme.Dpi(this, 95);
-            _symbolsRightCol.RowStyles[1].Height = UiTheme.Dpi(this, 310);
+            _symbolsRightCol.RowStyles[0].Height = UiTheme.Dpi(this, 160);
+            _symbolsRightCol.RowStyles[1].Height = UiTheme.Dpi(this, 195);
         }
         if (_behaviorPanel is not null && _behaviorPanel.RowStyles.Count >= 2)
         {
@@ -752,8 +719,6 @@ internal sealed class SettingsForm : MacDialogForm
             _updateAutoCheck.Checked = _config.UpdateAutoCheck;
             _updateAutoDownload.Checked = _config.UpdateAutoDownload;
             _tsfFallback.Checked = _config.TsfFallback;
-            bool allCornersSame = _edit.Values.Select(v => v.CornerPreference).Distinct().Count() <= 1;
-            _syncAllStatesCorner.Checked = allCornersSame;
         }
         finally
         {
@@ -790,7 +755,6 @@ internal sealed class SettingsForm : MacDialogForm
             _transparency.Value = Math.Clamp(s.Transparency, 0, 255);
             int pct = (int)Math.Round(_transparency.Value * 100.0 / 255.0);
             _transparencyLabel.Text = $"{pct}%";
-            SetRadio(_stateCornerButtons, StateCornerOptions, Math.Clamp(s.CornerPreference, -1, 6));
         }
         finally
         {
@@ -810,13 +774,7 @@ internal sealed class SettingsForm : MacDialogForm
         s.ShapeWidth = (int)_shapeWidth.Value;
         s.ShapeHeight = (int)_shapeHeight.Value;
         s.Transparency = _transparency.Value;
-        int cornerVal = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
-        s.CornerPreference = cornerVal;
-        if (_syncAllStatesCorner.Checked)
-        {
-            foreach (var style in _edit.Values)
-                style.CornerPreference = cornerVal;
-        }
+        s.CornerPreference = -1; // 全局统一圆角
     }
 
     private void CollectAndApply()
@@ -840,7 +798,11 @@ internal sealed class SettingsForm : MacDialogForm
 
         var styles = new Dictionary<string, SymbolStyle>();
         foreach (var (key, style) in _edit)
-            styles[key] = style.Clone();
+        {
+            var clone = style.Clone();
+            clone.CornerPreference = -1; // 统一遵从全局圆角设置
+            styles[key] = clone;
+        }
         _config.Styles = styles;
     }
 
@@ -848,9 +810,8 @@ internal sealed class SettingsForm : MacDialogForm
     {
         if (_loading)
             return;
-        int stateCorner = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
         int globalCorner = CurrentRadio(_cornerButtons, CornerOptions, 3);
-        int effectiveCorner = stateCorner >= 0 ? stateCorner : globalCorner;
+        int globalEdge = CurrentRadio(_edgeButtons, EdgeOptions, 0);
         var temp = new SymbolStyle
         {
             Kind = _stateOff.Checked ? SymbolKind.None : SymbolKind.Shape,
@@ -859,9 +820,9 @@ internal sealed class SettingsForm : MacDialogForm
             ShapeWidth = (int)_shapeWidth.Value,
             ShapeHeight = (int)_shapeHeight.Value,
             Transparency = _transparency.Value,
-            CornerPreference = stateCorner,
+            CornerPreference = -1,
         };
-        _preview.SetSymbol(temp, effectiveCorner, CurrentRadio(_edgeButtons, EdgeOptions, 0));
+        _preview.SetSymbol(temp, globalCorner, globalEdge);
     }
 
     private void PickColor()
@@ -891,7 +852,6 @@ internal sealed class SettingsForm : MacDialogForm
         {
             SetRadio(_cornerButtons, CornerOptions, 3);
             SetRadio(_edgeButtons, EdgeOptions, 0);
-            SetRadio(_stateCornerButtons, StateCornerOptions, -1);
         }
         finally
         {
@@ -910,8 +870,6 @@ internal sealed class SettingsForm : MacDialogForm
         _shapeWidth.Enabled = on;
         _shapeHeight.Enabled = on;
         _transparency.Enabled = on;
-        foreach (var radio in _stateCornerButtons)
-            radio.Enabled = on;
     }
 
     private static void SetRadio(MacRadio[] radios, (string Text, int Value)[] options, int value)
@@ -934,7 +892,7 @@ internal sealed class SettingsForm : MacDialogForm
         => Math.Clamp(value, (int)input.Minimum, (int)input.Maximum);
 }
 
-/// <summary>实时预览盒：高精度棋盘格背景 + 渲染位图（放大无插值，保持像素边缘真实观感）</summary>
+/// <summary>实时预览盒：高精度棋盘格背景 + 渲染位图（自适应舒适边距与居中，保持像素边缘真实观感，杜绝裁剪）</summary>
 internal sealed class PreviewBox : Control
 {
     private Bitmap? _bitmap;
@@ -945,6 +903,10 @@ internal sealed class PreviewBox : Control
     private Size _checkerSize;
     private UiPalette? _checkerPalette;
 
+    private SymbolStyle? _lastStyle;
+    private int _lastCorner;
+    private int _lastEdge;
+
     public PreviewBox()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
@@ -953,35 +915,69 @@ internal sealed class PreviewBox : Control
 
     public void SetSymbol(SymbolStyle style, int corner, int edge)
     {
-        Bitmap? old = _bitmap;
-        if (style.Kind != SymbolKind.Shape)
+        _lastStyle = style.Clone();
+        _lastCorner = corner;
+        _lastEdge = edge;
+        RebuildBitmap();
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        _checker?.Dispose();
+        _checker = null;
+        RebuildBitmap();
+    }
+
+    private void RebuildBitmap()
+    {
+        if (_lastStyle is null || _lastStyle.Kind != SymbolKind.Shape)
         {
+            Bitmap? old = _bitmap;
             _bitmap = null;
-            _emptyText = "此状态不显示光标符号";
+            _emptyText = _lastStyle is null ? "" : "此状态不显示光标符号";
+            old?.Dispose();
+            Invalidate();
+            return;
         }
-        else
-        {
-            double s = UiTheme.DpiScale(this);
-            double maxSide = Math.Max(1, Math.Max(style.ShapeWidth, style.ShapeHeight));
-            double scale = Math.Min(4.0 * s, UiTheme.Dpi(this, 160) / maxSide);
-            if (scale < 0.2 * s)
-                scale = 0.2 * s;
-            _bitmap = SymbolRenderer.Render(style, corner, edge, scale);
-            _emptyText = "";
-        }
-        old?.Dispose();
+
+        double s = UiTheme.DpiScale(this);
+        int availW = Math.Max(30, Width);
+        int availH = Math.Max(30, Height);
+
+        // 视口内部预留舒适呼吸留白（纵向至少留 24px，横向留 32px），防止光标符号与阴影边缘碰边裁剪
+        double targetH = Math.Max(16.0, availH - 24.0 * s);
+        double targetW = Math.Max(16.0, availW - 32.0 * s);
+
+        double baseW = Math.Max(1, _lastStyle.ShapeWidth);
+        double baseH = Math.Max(1, _lastStyle.ShapeHeight);
+
+        // 「柔和阴影」样式自带扩散外扩 padding，计算安全系数以确保阴影完全舒展
+        double shadowFactor = (_lastEdge == 4) ? 0.32 : 0.0;
+        double shadowConst = (_lastEdge == 4) ? 6.0 * s : 0.0;
+
+        double effH = baseH * (1.0 + shadowFactor) + shadowConst;
+        double effW = baseW * (1.0 + shadowFactor) + shadowConst;
+
+        double fitScale = Math.Min(targetW / effW, targetH / effH);
+
+        // 缩放比例限制在 [0.2*s, 4.0*s]，默认 12~16px 尺寸下提供 3.5x~4x 细腻特写
+        double scale = Math.Clamp(fitScale, 0.2 * s, 4.0 * s);
+
+        Bitmap? oldBmp = _bitmap;
+        _bitmap = SymbolRenderer.Render(_lastStyle, _lastCorner, _lastEdge, scale);
+        _emptyText = "";
+        oldBmp?.Dispose();
         Invalidate();
     }
 
-    private void EnsureChecker(int cell)
+    private void EnsureChecker(int cell, int w, int h)
     {
         UiPalette palette = UiTheme.Current;
-        if (_checker is not null && _checkerCell == cell && _checkerSize == ClientSize && ReferenceEquals(_checkerPalette, palette))
+        if (_checker is not null && _checkerCell == cell && _checkerSize.Width == w && _checkerSize.Height == h && ReferenceEquals(_checkerPalette, palette))
             return;
 
         _checker?.Dispose();
-        int w = Math.Max(1, Width);
-        int h = Math.Max(1, Height);
         _checker = new Bitmap(w, h);
         using (var gc = Graphics.FromImage(_checker))
         using (var even = new SolidBrush(palette.CheckerEven))
@@ -996,29 +992,55 @@ internal sealed class PreviewBox : Control
             }
         }
         _checkerCell = cell;
-        _checkerSize = ClientSize;
+        _checkerSize = new Size(w, h);
         _checkerPalette = palette;
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        int cell = Math.Max(4, UiTheme.Dpi(this, 8));
-        EnsureChecker(cell);
-        if (_checker is not null)
-            e.Graphics.DrawImageUnscaled(_checker, 0, 0);
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        if (_bitmap is not null)
+        float s = UiTheme.DpiScale(this);
+        float radius = Math.Max(4f, UiTheme.DpiF(this, 8f));
+        float penW = Math.Max(1f, UiTheme.DpiF(this, 1f));
+        var bounds = new RectangleF(penW / 2f, penW / 2f, Width - penW, Height - penW);
+
+        if (bounds.Width <= 2 || bounds.Height <= 2)
+            return;
+
+        using (var path = MacDraw.RoundedPath(bounds, radius))
         {
-            int px = (Width - _bitmap.Width) / 2;
-            int py = (Height - _bitmap.Height) / 2;
-            e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-            e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
-            e.Graphics.DrawImage(_bitmap, new Rectangle(px, py, _bitmap.Width, _bitmap.Height));
-        }
-        else if (_emptyText.Length > 0)
-        {
-            TextRenderer.DrawText(e.Graphics, _emptyText, Font, ClientRectangle, UiTheme.Dim,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            // 在圆角视口内部裁切棋盘格
+            var oldClip = g.Clip;
+            g.SetClip(path);
+
+            int cell = Math.Max(4, UiTheme.Dpi(this, 8));
+            int w = Math.Max(1, Width);
+            int h = Math.Max(1, Height);
+            EnsureChecker(cell, w, h);
+            if (_checker is not null)
+                g.DrawImageUnscaled(_checker, 0, 0);
+
+            if (_bitmap is not null)
+            {
+                int px = Math.Max(0, (Width - _bitmap.Width) / 2);
+                int py = Math.Max(0, (Height - _bitmap.Height) / 2);
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                g.PixelOffsetMode = PixelOffsetMode.Half;
+                g.DrawImage(_bitmap, new Rectangle(px, py, _bitmap.Width, _bitmap.Height));
+            }
+            else if (_emptyText.Length > 0)
+            {
+                TextRenderer.DrawText(g, _emptyText, Font, ClientRectangle, UiTheme.Dim,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+
+            g.Clip = oldClip;
+
+            // 绘制视口精致微边框（与 macOS 卡片/调色盘保持同构质感）
+            using var pen = new Pen(UiTheme.CardBorder, penW);
+            g.DrawPath(pen, path);
         }
     }
 
