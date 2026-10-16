@@ -33,6 +33,9 @@ internal static class StateDetector
     private static InputState? _lastValidChineseSubState;
     private static bool _shiftWasDown;
     private static long _shiftDownAt;
+    private static uint _shiftDownInputTime;
+    private static bool _shiftInterrupted;
+    private static bool _ctrlSpaceWasDown;
 
     public static InputState Detect(IntPtr fgWindow)
     {
@@ -66,11 +69,16 @@ internal static class StateDetector
 
         // 2) 键盘布局
         ushort langId = 0;
+        IntPtr hkl = IntPtr.Zero;
         if (tid != 0)
         {
-            IntPtr hkl = GetKeyboardLayout(tid);
-            langId = (ushort)((ulong)hkl & 0xFFFF);
+            hkl = GetKeyboardLayout(tid);
         }
+        if (hkl == IntPtr.Zero)
+        {
+            hkl = GetKeyboardLayout(0); // 降级到当前前台活动线程/系统默认布局
+        }
+        langId = (ushort)((ulong)hkl & 0xFFFF);
 
         ushort primary = (ushort)(langId & 0x3FF);
 
@@ -113,11 +121,18 @@ internal static class StateDetector
         if (!conversion.HasValue && fgWindow != IntPtr.Zero && fgWindow != targetWnd)
             conversion = QueryIme(fgWindow, IMC_GETCONVERSIONMODE);
 
-        if (openStatus.HasValue || conversion.HasValue)
+        // 如果输入法已明确关闭（openStatus == 0），必定为英文
+        if (openStatus.HasValue && openStatus.Value == 0)
         {
-            // 输入法关闭（openStatus == 0）或转换模式为英文（bit 0 == 0）均判定为英文
+            _lastValidChineseSubState = InputState.English;
+            return InputState.English;
+        }
+
+        // 仅当明确获取到 conversion 模式时才信赖 IMM32 结果，避免 conversion 为 null 时被默认 true 强制覆盖为中文
+        if (conversion.HasValue)
+        {
             bool isOpen = openStatus.GetValueOrDefault(1) != 0;
-            bool isNative = conversion.HasValue ? (conversion.Value & 0x1) != 0 : true;
+            bool isNative = (conversion.Value & 0x1) != 0;
 
             InputState state = (isOpen && isNative) ? InputState.Chinese : InputState.English;
             _lastValidChineseSubState = state;
@@ -170,30 +185,26 @@ internal static class StateDetector
 
             // 1. 读取 KEYBOARD_OPENCLOSE 仓（开启 vs 关闭）
             Guid guidOpenClose = GuidCompartmentKeyboardOpenClose;
+            int? valOpen = null;
             if (compMgr.GetCompartment(ref guidOpenClose, out ITfCompartment compOpenClose) == 0 && compOpenClose is not null)
             {
-                int? val = ReadCompartmentInt(compOpenClose);
-                if (val.HasValue)
-                {
-                    if (val.Value == 0)
-                        return false; // 输入法关闭，必定为英文
-                }
+                valOpen = ReadCompartmentInt(compOpenClose);
             }
 
             // 2. 读取 KEYBOARD_INPUTMODE_CONVERSION 仓（转换模式）
             Guid guidConversion = GuidCompartmentKeyboardConversion;
+            int? valConv = null;
             if (compMgr.GetCompartment(ref guidConversion, out ITfCompartment compConv) == 0 && compConv is not null)
             {
-                int? val = ReadCompartmentInt(compConv);
-                if (val.HasValue)
-                {
-                    // TF_CONVERSIONMODE_NATIVE (0x1 = 中文；0 = 英文)
-                    return (val.Value & 0x1) != 0;
-                }
+                valConv = ReadCompartmentInt(compConv);
             }
 
-            // 若 OpenClose 开启但 Conversion 无法从全局仓读取（部分输入法仅在线程仓更新），
-            // 绝不能武断返回 true（会导致覆盖 Shift 切换状态），返回 null 回退到 Tier 3 状态保持与物理 Shift 追踪！
+            if (valOpen.HasValue && valOpen.Value == 0)
+                return false;
+
+            if (valConv.HasValue)
+                return (valConv.Value & 0x1) != 0;
+
             return null;
         }
         catch
@@ -239,32 +250,64 @@ internal static class StateDetector
     }
 
     /// <summary>
-    /// 监听物理 Shift 单击切换（免权限限制）。
+    /// 监听物理 Shift / Ctrl+Space 单击切换（免 UIPI 权限限制）。
     /// 当在提权窗口（如 Quicker 管理员权限）中由于 UIPI 拦截无法通过窗口消息刺探 IMC 时，
-    /// 捕捉用户的 Shift 单击动作以实现自适应中英切换。
+    /// 捕捉用户的 Shift 单独轻击动作以实现自适应中英切换。
     /// </summary>
     private static void UpdateShiftToggle()
     {
+        // 1. 监测 Shift 键独立轻击（免 UIPI 隔离，全球所有中文输入法通用的中/英切换键）
         bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        var lii = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+        uint lastInput = GetLastInputInfo(ref lii) ? lii.dwTime : 0;
+
         if (shiftDown)
         {
             if (!_shiftWasDown)
             {
                 _shiftWasDown = true;
                 _shiftDownAt = Environment.TickCount64;
+                _shiftDownInputTime = lastInput;
+                _shiftInterrupted = false;
+            }
+            else
+            {
+                // 若 Shift 按下期间发生了其他键鼠输入（如组合键 Shift+A、Shift+方向键等），标记为被干扰，不作为切换判定
+                if (lastInput != _shiftDownInputTime)
+                {
+                    _shiftInterrupted = true;
+                }
             }
         }
         else if (_shiftWasDown)
         {
             _shiftWasDown = false;
             long duration = Environment.TickCount64 - _shiftDownAt;
-            // 典型单独快速轻击 Shift 键（15ms ~ 500ms），判定为一次中英状态翻转
-            if (duration is > 15 and < 500)
+            // 未被其他按键打断且持续时间为典型单独轻击（< 600ms），判定为一次干净的中英切换
+            if (!_shiftInterrupted && duration is > 0 and < 600)
             {
-                InputState current = _lastValidChineseSubState ?? InputState.Chinese;
-                _lastValidChineseSubState = current == InputState.Chinese ? InputState.English : InputState.Chinese;
-                _imeCacheAt = 0; // 立即失效缓存，使光标符号在下一个检测周期即时更新
+                ToggleChineseSubState();
             }
         }
+
+        // 2. 监测 Ctrl + Space 切换（经典通用切换快捷键）
+        bool ctrlDown = (GetAsyncKeyState(0x11) & 0x8000) != 0;
+        bool spaceDown = (GetAsyncKeyState(0x20) & 0x8000) != 0;
+        if (ctrlDown && spaceDown)
+        {
+            _ctrlSpaceWasDown = true;
+        }
+        else if (_ctrlSpaceWasDown)
+        {
+            _ctrlSpaceWasDown = false;
+            ToggleChineseSubState();
+        }
+    }
+
+    private static void ToggleChineseSubState()
+    {
+        InputState current = _lastValidChineseSubState ?? InputState.Chinese;
+        _lastValidChineseSubState = current == InputState.Chinese ? InputState.English : InputState.Chinese;
+        _imeCacheAt = 0; // 立即失效缓存，使光标符号在下一个检测周期即时更新
     }
 }
