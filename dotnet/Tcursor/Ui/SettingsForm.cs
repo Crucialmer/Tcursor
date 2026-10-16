@@ -27,6 +27,12 @@ internal sealed class SettingsForm : MacDialogForm
         ("特大圆角 (40%)", 4), ("超大圆角 (45%)", 5), ("胶囊 (50%)", 6),
     };
 
+    private static readonly (string Text, int Value)[] StateCornerOptions =
+    {
+        ("跟随全局", -1), ("直角 (0%)", 0), ("小圆角 (16%)", 1), ("中圆角 (25%)", 2),
+        ("大圆角 (33%)", 3), ("特大圆角 (40%)", 4), ("超大圆角 (45%)", 5), ("胶囊 (50%)", 6),
+    };
+
     private static readonly (string Text, int Value)[] EdgeOptions =
     {
         ("无 (默认)", 0), ("细描边", 1), ("内高光", 2), ("微立体", 3), ("柔和阴影", 4),
@@ -49,6 +55,7 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly MacNumberField _shapeHeight = new() { Minimum = 2, Maximum = 500, Width = 80 };
     private readonly MacSlider _transparency = new() { Minimum = 0, Maximum = 255, Value = 255, Width = 160, BackColor = UiTheme.CardBg };
     private readonly Label _transparencyLabel = new() { AutoSize = true, ForeColor = UiTheme.Text, BackColor = UiTheme.CardBg };
+    private readonly MacRadio[] _stateCornerButtons;
 
     // ----- Tab 1: 外观与位置 -----
     private readonly MacRadio[] _cornerButtons;
@@ -92,7 +99,7 @@ internal sealed class SettingsForm : MacDialogForm
 
         Text = "光标符号设置 - Tcursor";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(880, 580 + MacDialogForm.HeaderDesignPx);
+        ClientSize = new Size(880, 620 + MacDialogForm.HeaderDesignPx);
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -102,6 +109,7 @@ internal sealed class SettingsForm : MacDialogForm
 
         _cornerButtons = BuildRadioGroup(CornerOptions, out FlowLayoutPanel cornerFlow);
         _edgeButtons = BuildRadioGroup(EdgeOptions, out FlowLayoutPanel edgeFlow);
+        _stateCornerButtons = BuildRadioGroup(StateCornerOptions, out FlowLayoutPanel stateCornerFlow);
 
         // 顶层主网格
         var root = new TableLayoutPanel
@@ -124,7 +132,7 @@ internal sealed class SettingsForm : MacDialogForm
         root.Controls.Add(_segmented, 0, 0);
 
         // 初始化四大分页面板
-        _panes[0] = BuildSymbolsPane();
+        _panes[0] = BuildSymbolsPane(stateCornerFlow);
         _panes[1] = BuildAppearancePane(cornerFlow, edgeFlow);
         _panes[2] = BuildBehaviorPane();
         _panes[3] = BuildSystemPane();
@@ -201,6 +209,8 @@ internal sealed class SettingsForm : MacDialogForm
             if (!_loading) { CommitCurrent(); UpdatePreview(); }
         };
 
+        foreach (var radio in _stateCornerButtons)
+            radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) { CommitCurrent(); UpdatePreview(); } };
         foreach (var radio in _cornerButtons)
             radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) UpdatePreview(); };
         foreach (var radio in _edgeButtons)
@@ -220,7 +230,7 @@ internal sealed class SettingsForm : MacDialogForm
             _panes[i].Visible = i == index;
     }
 
-    private Panel BuildSymbolsPane()
+    private Panel BuildSymbolsPane(FlowLayoutPanel stateCornerFlow)
     {
         var panel = new TableLayoutPanel
         {
@@ -258,7 +268,7 @@ internal sealed class SettingsForm : MacDialogForm
             BackColor = UiTheme.WindowBg,
         };
         rightCol.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
+        rightCol.RowStyles.Add(new RowStyle(SizeType.Absolute, 130));
         rightCol.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         _preview.Dock = DockStyle.Fill;
@@ -287,7 +297,10 @@ internal sealed class SettingsForm : MacDialogForm
         }
 
         AddStyleRow("显示开关", _stateOff);
-        AddStyleRow("符号颜色", _colorButton);
+
+        var colorFlow = new FlowLayoutPanel { AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
+        colorFlow.Controls.Add(_colorButton);
+        AddStyleRow("符号颜色", colorFlow);
 
         var sizeFlow = new FlowLayoutPanel { AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
         sizeFlow.Controls.Add(new Label { Text = "宽:", AutoSize = true, Margin = new Padding(0, 6, 4, 0), ForeColor = UiTheme.Dim });
@@ -301,6 +314,7 @@ internal sealed class SettingsForm : MacDialogForm
         _transparencyLabel.Margin = new Padding(8, 6, 0, 0);
         transFlow.Controls.Add(_transparencyLabel);
         AddStyleRow("不透明度", transFlow);
+        AddStyleRow("形状圆角", stateCornerFlow);
 
         styleCard.Controls.Add(styleTable);
         rightCol.Controls.Add(styleCard, 0, 1);
@@ -324,7 +338,7 @@ internal sealed class SettingsForm : MacDialogForm
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        var cornerCard = new MacCard("连续曲率圆角 (Apple Squircle)") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
+        var cornerCard = new MacCard("全局默认圆角 (Apple Squircle 连续曲率)") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
         cornerCard.Controls.Add(cornerFlow);
         panel.Controls.Add(cornerCard, 0, 0);
 
@@ -479,10 +493,10 @@ internal sealed class SettingsForm : MacDialogForm
     private static MacRadio[] BuildRadioGroup((string Text, int Value)[] options, out FlowLayoutPanel flow)
     {
         var radios = new MacRadio[options.Length];
-        flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
+        flow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
         for (int i = 0; i < options.Length; i++)
         {
-            radios[i] = new MacRadio { Text = options[i].Text, BackColor = UiTheme.CardBg, Margin = new Padding(0, 4, 18, 6) };
+            radios[i] = new MacRadio { Text = options[i].Text, BackColor = UiTheme.CardBg, Margin = new Padding(0, 4, 14, 4) };
             flow.Controls.Add(radios[i]);
         }
         return radios;
@@ -605,6 +619,7 @@ internal sealed class SettingsForm : MacDialogForm
             _transparency.Value = Math.Clamp(s.Transparency, 0, 255);
             int pct = (int)Math.Round(_transparency.Value * 100.0 / 255.0);
             _transparencyLabel.Text = $"{pct}%";
+            SetRadio(_stateCornerButtons, StateCornerOptions, Math.Clamp(s.CornerPreference, -1, 6));
         }
         finally
         {
@@ -624,6 +639,7 @@ internal sealed class SettingsForm : MacDialogForm
         s.ShapeWidth = (int)_shapeWidth.Value;
         s.ShapeHeight = (int)_shapeHeight.Value;
         s.Transparency = _transparency.Value;
+        s.CornerPreference = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
     }
 
     private void CollectAndApply()
@@ -655,6 +671,9 @@ internal sealed class SettingsForm : MacDialogForm
     {
         if (_loading)
             return;
+        int stateCorner = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
+        int globalCorner = CurrentRadio(_cornerButtons, CornerOptions, 3);
+        int effectiveCorner = stateCorner >= 0 ? stateCorner : globalCorner;
         var temp = new SymbolStyle
         {
             Kind = _stateOff.Checked ? SymbolKind.None : SymbolKind.Shape,
@@ -663,8 +682,9 @@ internal sealed class SettingsForm : MacDialogForm
             ShapeWidth = (int)_shapeWidth.Value,
             ShapeHeight = (int)_shapeHeight.Value,
             Transparency = _transparency.Value,
+            CornerPreference = stateCorner,
         };
-        _preview.SetSymbol(temp, CurrentRadio(_cornerButtons, CornerOptions, 3), CurrentRadio(_edgeButtons, EdgeOptions, 0));
+        _preview.SetSymbol(temp, effectiveCorner, CurrentRadio(_edgeButtons, EdgeOptions, 0));
     }
 
     private void PickColor()
@@ -694,6 +714,7 @@ internal sealed class SettingsForm : MacDialogForm
         {
             SetRadio(_cornerButtons, CornerOptions, 3);
             SetRadio(_edgeButtons, EdgeOptions, 0);
+            SetRadio(_stateCornerButtons, StateCornerOptions, -1);
         }
         finally
         {
@@ -712,6 +733,8 @@ internal sealed class SettingsForm : MacDialogForm
         _shapeWidth.Enabled = on;
         _shapeHeight.Enabled = on;
         _transparency.Enabled = on;
+        foreach (var radio in _stateCornerButtons)
+            radio.Enabled = on;
     }
 
     private static void SetRadio(MacRadio[] radios, (string Text, int Value)[] options, int value)

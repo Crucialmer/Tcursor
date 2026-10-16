@@ -31,6 +31,8 @@ public sealed class SymbolStyle
     public string ShapeColor { get; set; } = "#FF0000";
     public int ShapeWidth { get; set; } = 12;    // 96 DPI 逻辑像素
     public int ShapeHeight { get; set; } = 12;
+    /// <summary>当前状态圆角偏好：-1 = 跟随全局设置；0 直角 / 1 小 16% / 2 中 25% / 3 大 33% / 4 特大 40% / 5 超大 45% / 6 胶囊 50%</summary>
+    public int CornerPreference { get; set; } = -1;
 
     // 通用
     /// <summary>每状态偏移（已废弃：v0.6.3 起偏移统一为全局 AppConfig.ScreenOffset*；仅旧配置迁移时读取）</summary>
@@ -369,8 +371,13 @@ public static class ConfigStore
             s.Kind = SymbolKind.Shape;   // 文本/图片已移除 → 迁移为形状
             s.Shape = def.Shape;
         }
+        if (s.Shape == ShapeKind.Circle && s.CornerPreference < 0)
+            s.CornerPreference = 6;
+        else if (s.Shape == ShapeKind.RoundedRect && s.CornerPreference < 0)
+            s.CornerPreference = 2;
         if (s.Shape != ShapeKind.Rect)
-            s.Shape = ShapeKind.Rect;    // 仅保留矩形形状（圆形/三角形/菱形/圆角矩形均为历史值）
+            s.Shape = ShapeKind.Rect;    // 仅保留矩形形状（圆角由 CornerPreference 控制）
+        s.CornerPreference = Math.Clamp(s.CornerPreference, -1, 6);
         if (string.IsNullOrWhiteSpace(s.ShapeColor))
             s.ShapeColor = def.ShapeColor;
         s.ShapeWidth = s.ShapeWidth <= 0 ? def.ShapeWidth : Math.Clamp(s.ShapeWidth, 2, 500);

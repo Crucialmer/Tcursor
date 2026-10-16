@@ -18,10 +18,10 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly MacField _focusClass = MakeField(mono: true);
     private readonly MacField _title = MakeField(mono: false);
     private readonly MacField _path = MakeField(mono: true);
-    private readonly Label _status = new() { AutoSize = true, Font = UiTheme.FontCaptionBold, ForeColor = UiTheme.Dim, Margin = new Padding(6, 6, 6, 0) };
-    private readonly MacButton _addButton = new(accent: true) { Text = "✨ 添加为白名单规则", Width = 150, Height = 34, Enabled = false };
-    private readonly MacButton _copyButton = new() { Text = "拷贝进程名", Width = 110, Height = 34, Enabled = false };
-    private readonly MacButton _copyPathButton = new() { Text = "拷贝路径", Width = 96, Height = 34, Enabled = false };
+    private readonly Label _status = new() { AutoSize = true, Font = UiTheme.FontCaptionBold, ForeColor = UiTheme.Accent, Margin = new Padding(2, 2, 2, 4) };
+    private readonly MacButton _addButton = new(accent: true) { Text = "✨ 添加白名单规则", Width = 136, Height = 32, Enabled = false };
+    private readonly MacButton _copyButton = new() { Text = "拷贝进程名", Width = 90, Height = 32, Enabled = false };
+    private readonly MacButton _copyPathButton = new() { Text = "拷贝路径", Width = 78, Height = 32, Enabled = false };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
     private const int PathCacheTtlMs = 3000;
 
@@ -45,49 +45,64 @@ internal sealed class WindowInfoForm : MacDialogForm
         AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(620, 440 + MacDialogForm.HeaderDesignPx);
+        ClientSize = new Size(460, 330 + MacDialogForm.HeaderDesignPx);
 
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
+            RowCount = 4,
             Padding = new Padding(16, 12, 16, 14),
             BackColor = UiTheme.WindowBg,
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Tip
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // Cards
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Status & Buttons
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // Card
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Status
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Buttons
 
         var tip = new Label
         {
-            Text = "● 实时侦测中：请直接切换至任意前台应用窗口，下方信息将自动更新",
+            Text = "● 实时侦测中：请直接切换至任意前台窗口，下方自动刷新",
             AutoSize = true,
             Font = UiTheme.FontCaptionBold,
             ForeColor = UiTheme.Accent,
-            Margin = new Padding(4, 0, 4, 10),
+            Margin = new Padding(2, 0, 2, 8),
             BackColor = UiTheme.WindowBg,
         };
         root.Controls.Add(tip, 0, 0);
 
         // 主信息卡片
-        var card = new MacCard("前台窗口属性") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
+        var card = new MacCard("前台窗口属性") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 6) };
         var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            AutoScroll = true,
+            RowCount = 5,
+            AutoScroll = false,
             BackColor = UiTheme.CardBg,
         };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 74));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+
+        for (int i = 0; i < 5; i++)
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
 
         int row = 0;
         void AddRow(string label, Control control)
         {
-            table.RowCount = row + 1;
-            table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            table.Controls.Add(new Label { Text = label, AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, row);
+            var lbl = new Label
+            {
+                Text = label,
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                Font = UiTheme.FontBold,
+                ForeColor = UiTheme.Text,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = UiTheme.CardBg,
+                Margin = new Padding(0),
+            };
+            table.Controls.Add(lbl, 0, row);
             table.Controls.Add(control, 1, row);
             row++;
         }
@@ -99,6 +114,8 @@ internal sealed class WindowInfoForm : MacDialogForm
         AddRow("焦点类名", _focusClass);
         card.Controls.Add(table);
         root.Controls.Add(card, 0, 1);
+
+        root.Controls.Add(_status, 0, 2);
 
         // 底部动作行
         var bottomBox = new FlowLayoutPanel
@@ -113,23 +130,22 @@ internal sealed class WindowInfoForm : MacDialogForm
         _addButton.Click += (_, _) => AddRuleFromCurrent();
         _copyButton.Click += (_, _) => CopyProcessName();
         _copyPathButton.Click += (_, _) => CopyPathName();
-        var close = UiTheme.Button("关闭", width: 88);
+        var close = UiTheme.Button("关闭", width: 68);
+        close.Height = 32;
         close.Click += (_, _) => Close();
 
         bottomBox.Controls.Add(_addButton);
         bottomBox.Controls.Add(_copyButton);
         bottomBox.Controls.Add(_copyPathButton);
         bottomBox.Controls.Add(close);
-        bottomBox.Controls.Add(_status);
 
-        root.Controls.Add(bottomBox, 0, 2);
+        root.Controls.Add(bottomBox, 0, 3);
         Controls.Add(root);
 
         _timer.Tick += (_, _) => RefreshInfo();
         Load += (_, _) =>
         {
-            // 依据当前 DPI 缩放首列宽度
-            table.ColumnStyles[0].Width = UiTheme.Dpi(this, 90);
+            table.ColumnStyles[0].Width = UiTheme.Dpi(this, 74);
             MacDialogForm.PositionBottomRight(this);
         };
         Shown += (_, _) =>
@@ -169,8 +185,8 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             Dock = DockStyle.Fill,
             BackColor = UiTheme.CardBg,
-            Margin = new Padding(0, 3, 0, 5),
-            Height = 30,
+            Margin = new Padding(0, 2, 0, 2),
+            Height = 28,
         };
         if (mono)
             field.Inner.Font = UiTheme.FontMono;

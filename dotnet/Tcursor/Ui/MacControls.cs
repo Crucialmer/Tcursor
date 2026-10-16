@@ -552,20 +552,14 @@ internal sealed class MacCard : Panel
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         BackColor = UiTheme.WindowBg;
         Font = UiTheme.Font;
-        UpdateCardPadding();
-    }
-
-    private void UpdateCardPadding()
-    {
         Padding = Title is null
-            ? new Padding(UiTheme.Dpi(this, 16))
-            : new Padding(UiTheme.Dpi(this, 16), UiTheme.Dpi(this, 42), UiTheme.Dpi(this, 16), UiTheme.Dpi(this, 14));
+            ? new Padding(16)
+            : new Padding(16, 38, 16, 12);
     }
 
     protected override void OnDpiChangedAfterParent(EventArgs e)
     {
         base.OnDpiChangedAfterParent(e);
-        UpdateCardPadding();
         Invalidate();
     }
 
@@ -787,6 +781,12 @@ internal sealed class MacField : Control
     {
         get => _edit.Text;
         set => _edit.Text = value ?? string.Empty;
+    }
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        float s = UiTheme.DpiScale(this);
+        return new Size(proposedSize.Width > 0 ? proposedSize.Width : (int)Math.Round(120f * s), (int)Math.Round(28f * s));
     }
 
     protected override void OnLayout(LayoutEventArgs levent)

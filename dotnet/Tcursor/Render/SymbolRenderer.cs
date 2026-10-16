@@ -63,6 +63,9 @@ internal static class SymbolRenderer
 
     private static Bitmap RenderShape(SymbolStyle style, int cornerPreference, int edgeStyle, double scale)
     {
+        int effectiveCorner = (style.CornerPreference >= 0 && style.CornerPreference <= 6)
+            ? style.CornerPreference
+            : cornerPreference;
         int w = Math.Max(2, (int)Math.Round(style.ShapeWidth * scale));
         int h = Math.Max(2, (int)Math.Round(style.ShapeHeight * scale));
         int alpha = Math.Clamp(style.Transparency, 0, 255);
@@ -74,7 +77,7 @@ internal static class SymbolRenderer
         {
             using var g = Graphics.FromImage(bmp);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            DrawSymbol(g, style, cornerPreference, edgeStyle, alpha, w, h, pad, 1);
+            DrawSymbol(g, style, effectiveCorner, edgeStyle, alpha, w, h, pad, 1);
             return bmp;
         }
 
@@ -83,7 +86,7 @@ internal static class SymbolRenderer
             using (var gb = Graphics.FromImage(big))
             {
                 gb.SmoothingMode = SmoothingMode.AntiAlias;
-                DrawSymbol(gb, style, cornerPreference, edgeStyle, alpha, w, h, pad, ss);
+                DrawSymbol(gb, style, effectiveCorner, edgeStyle, alpha, w, h, pad, ss);
             }
             using var g = Graphics.FromImage(bmp);
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;

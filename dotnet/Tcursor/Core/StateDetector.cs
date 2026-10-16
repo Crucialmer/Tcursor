@@ -109,20 +109,17 @@ internal static class StateDetector
         if (!openStatus.HasValue && fgWindow != IntPtr.Zero && fgWindow != targetWnd)
             openStatus = QueryIme(fgWindow, IMC_GETOPENSTATUS);
 
-        if (openStatus.HasValue)
-        {
-            InputState state = openStatus.Value != 0 ? InputState.Chinese : InputState.English;
-            _lastValidChineseSubState = state;
-            return state;
-        }
-
         int? conversion = targetWnd != IntPtr.Zero ? QueryIme(targetWnd, IMC_GETCONVERSIONMODE) : null;
         if (!conversion.HasValue && fgWindow != IntPtr.Zero && fgWindow != targetWnd)
             conversion = QueryIme(fgWindow, IMC_GETCONVERSIONMODE);
 
-        if (conversion.HasValue)
+        if (openStatus.HasValue || conversion.HasValue)
         {
-            InputState state = (conversion.Value & 0x1) != 0 ? InputState.Chinese : InputState.English;
+            // 输入法关闭（openStatus == 0）或转换模式为英文（bit 0 == 0）均判定为英文
+            bool isOpen = openStatus.GetValueOrDefault(1) != 0;
+            bool isNative = conversion.HasValue ? (conversion.Value & 0x1) != 0 : true;
+
+            InputState state = (isOpen && isNative) ? InputState.Chinese : InputState.English;
             _lastValidChineseSubState = state;
             return state;
         }
@@ -177,7 +174,10 @@ internal static class StateDetector
             {
                 int? val = ReadCompartmentInt(compOpenClose);
                 if (val.HasValue)
-                    return val.Value != 0;
+                {
+                    if (val.Value == 0)
+                        return false; // 输入法关闭，必定为英文
+                }
             }
 
             // 2. 读取 KEYBOARD_INPUTMODE_CONVERSION 仓（转换模式）
@@ -186,8 +186,15 @@ internal static class StateDetector
             {
                 int? val = ReadCompartmentInt(compConv);
                 if (val.HasValue)
-                    return (val.Value & 0x1) != 0; // TF_CONVERSIONMODE_NATIVE (0x1 = 中文)
+                {
+                    // TF_CONVERSIONMODE_NATIVE (0x1 = 中文；0 = 英文)
+                    return (val.Value & 0x1) != 0;
+                }
             }
+
+            // 若 OpenClose 开启但 Conversion 无法从全局仓读取（部分输入法仅在线程仓更新），
+            // 绝不能武断返回 true（会导致覆盖 Shift 切换状态），返回 null 回退到 Tier 3 状态保持与物理 Shift 追踪！
+            return null;
         }
         catch
         {
