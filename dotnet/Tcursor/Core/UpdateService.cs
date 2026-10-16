@@ -60,7 +60,7 @@ internal static class UpdateService
     private static readonly TimeSpan ExitWait = TimeSpan.FromSeconds(60);
 
     private static readonly Regex ZipHashRegex =
-        new(@"zip\s*sha256\s*[:：]\s*`?([0-9a-fA-F]{64})`?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"(?:\*\*|\b)zip\s*sha256(?:\*\*|\b)?\s*[:：]\s*`?([0-9a-fA-F]{64})`?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly HttpClient Http = CreateClient(TimeSpan.FromSeconds(20));
     private static readonly HttpClient HttpFile = CreateClient(TimeSpan.FromMinutes(10));   // 下载：慢线路也不该被总超时掐断
