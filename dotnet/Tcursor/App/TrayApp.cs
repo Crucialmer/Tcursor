@@ -57,7 +57,7 @@ internal sealed class TrayApp : ApplicationContext
 
         var menu = new MacContextMenuStrip();
         _menu = menu;
-        menu.MinimumSize = new Size(UiTheme.Dpi(menu, 216), 0);
+        menu.MinimumSize = new Size(UiTheme.Dpi(menu, 180), 0);
         menu.HandleCreated += (_, _) =>
         {
             try
@@ -80,8 +80,8 @@ internal sealed class TrayApp : ApplicationContext
                 _ = Win32.NativeMethods.DwmSetWindowAttribute(menu.Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
             }
             catch { }
-            menu.MinimumSize = new Size(UiTheme.Dpi(menu, 216), 0);
-            _brandHeader.Size = new Size(UiTheme.Dpi(menu, 216), UiTheme.Dpi(menu, 58));
+            menu.MinimumSize = new Size(UiTheme.Dpi(menu, 180), 0);
+            _brandHeader.Size = new Size(UiTheme.Dpi(menu, 180), UiTheme.Dpi(menu, 56));
             _brandHeader.UpdateStatus(_paused, _config.Rules.Count(r => r.Enabled));
         };
 

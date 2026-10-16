@@ -96,10 +96,10 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        // 垂直居中、距左 14px，完整显示在胶囊内部
-        float checkW = Math.Max(10f, 12f * s);
-        float checkH = Math.Max(8f, 10f * s);
-        float x = Math.Max(12f, 14f * s);
+        // 垂直居中、距左 17px，与悬停药丸左边缘保留 12px 优雅留白
+        float checkW = Math.Max(10f, 11f * s);
+        float checkH = Math.Max(8f, 9.5f * s);
+        float x = Math.Max(15f, 17f * s);
         float y = (e.Item.Height - checkH) / 2f;
 
         Color checkColor = !e.Item.Enabled

@@ -228,7 +228,7 @@ internal static class Selftest
                 using var hostForm = new Form { Size = new Size(400, 500), StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
                 _ = hostForm.Handle;
 
-                void RenderMenuSample(bool isDark, string fileName)
+                void RenderMenuSample(bool isDark, int menuWidth, string fileName)
                 {
                     UiTheme.Apply(isDark);
                     using var testMenu = new MacContextMenuStrip();
@@ -249,8 +249,8 @@ internal static class Selftest
                     testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
                     testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
 
-                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, 216), UiTheme.Dpi(testMenu, 58));
-                    testMenu.MinimumSize = new Size(UiTheme.Dpi(testMenu, 216), 0);
+                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, menuWidth), UiTheme.Dpi(testMenu, 56));
+                    testMenu.MinimumSize = new Size(UiTheme.Dpi(testMenu, menuWidth), 0);
                     testMenu.Show(hostForm, 0, 0);
                     Application.DoEvents();
                     using var menuBmp = new Bitmap(testMenu.Width, testMenu.Height);
@@ -259,8 +259,8 @@ internal static class Selftest
                     testMenu.Close();
                 }
 
-                RenderMenuSample(false, "tray-menu-light.png");
-                RenderMenuSample(true, "tray-menu-dark.png");
+                RenderMenuSample(false, 180, "tray-menu-light.png");
+                RenderMenuSample(true, 180, "tray-menu-dark.png");
                 sb.AppendLine("tray-menu: OK -> tray-menu-light.png / tray-menu-dark.png");
 
                 void RenderFormSample(Form form, string fileName)

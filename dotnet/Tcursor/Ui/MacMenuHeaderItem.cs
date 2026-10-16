@@ -19,7 +19,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
     public MacMenuHeaderItem()
     {
         AutoSize = false;
-        Size = new Size(216, 58);
+        Size = new Size(180, 56);
         ToolTipText = "点击打开光标符号设置…";
     }
 
@@ -49,8 +49,8 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        int w = Owner is not null ? UiTheme.Dpi(Owner, 216) : 216;
-        int h = Owner is not null ? UiTheme.Dpi(Owner, 58) : 58;
+        int w = Owner is not null ? UiTheme.Dpi(Owner, 180) : 180;
+        int h = Owner is not null ? UiTheme.Dpi(Owner, 56) : 56;
         return new Size(w, h);
     }
 
