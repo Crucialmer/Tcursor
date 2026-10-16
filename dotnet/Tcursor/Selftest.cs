@@ -235,21 +235,21 @@ internal static class Selftest
                     var headerItem = new MacMenuHeaderItem();
                     headerItem.UpdateStatus(false, 3);
                     testMenu.Items.Add(headerItem);
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("暂停") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    var startupItem = new ToolStripMenuItem("开机自启动") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6), Checked = true };
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+                    testMenu.Items.Add(new ToolStripMenuItem("暂停") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    var startupItem = new ToolStripMenuItem("开机自启动") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4), Checked = true };
                     testMenu.Items.Add(startupItem);
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("光标符号设置…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripMenuItem("白名单规则…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripMenuItem("窗口信息…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("打开配置文件") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripMenuItem("检查更新…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
-                    testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+                    testMenu.Items.Add(new ToolStripMenuItem("光标符号设置…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("白名单规则…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("窗口信息…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+                    testMenu.Items.Add(new ToolStripMenuItem("打开配置文件") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("检查更新…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
 
-                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, menuWidth), UiTheme.Dpi(testMenu, 56));
+                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, menuWidth), UiTheme.Dpi(testMenu, 46));
                     testMenu.MinimumSize = new Size(UiTheme.Dpi(testMenu, menuWidth), 0);
                     testMenu.Show(hostForm, 0, 0);
                     Application.DoEvents();
@@ -259,8 +259,8 @@ internal static class Selftest
                     testMenu.Close();
                 }
 
-                RenderMenuSample(false, 180, "tray-menu-light.png");
-                RenderMenuSample(true, 180, "tray-menu-dark.png");
+                RenderMenuSample(false, 168, "tray-menu-light.png");
+                RenderMenuSample(true, 168, "tray-menu-dark.png");
                 sb.AppendLine("tray-menu: OK -> tray-menu-light.png / tray-menu-dark.png");
 
                 void RenderFormSample(Form form, string fileName)

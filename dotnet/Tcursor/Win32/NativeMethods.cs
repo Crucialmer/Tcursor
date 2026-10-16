@@ -17,6 +17,8 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
     /// <summary>GetKeyState 低位 = 切换键（CapsLock 等）的“开/关”状态（持续有效；勿用 GetAsyncKeyState 低位代替——那是“自上次读取后是否按过”的一次性脉冲）</summary>
     [DllImport("user32.dll")] internal static extern short GetKeyState(int vKey);
+    /// <summary>读取指定虚拟键的实时物理按下状态（高位为 1 表示当前处于按下状态，免 UIPI 隔离）</summary>
+    [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] internal static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
     [DllImport("user32.dll")] internal static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc, WinEventProc lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
     [DllImport("user32.dll")] internal static extern bool UnhookWinEvent(IntPtr hWinEventHook);
@@ -53,6 +55,29 @@ internal static class NativeMethods
 
     // ---------------- imm32 ----------------
     [DllImport("imm32.dll")] internal static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);
+
+    // ---------------- msctf (TSF 全局状态仓，免疫 UIPI 拦截) ----------------
+    [DllImport("msctf.dll", PreserveSig = true)]
+    internal static extern int TF_GetGlobalCompartment(out ITfCompartmentMgr ppCompMgr);
+
+    [ComImport, Guid("7dcf57ac-18ad-438b-824d-979bffb74b7c"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface ITfCompartmentMgr
+    {
+        [PreserveSig] int GetCompartment(ref Guid rguid, out ITfCompartment comp);
+        [PreserveSig] int ClearCompartment(uint clientId, ref Guid rguid);
+        [PreserveSig] int EnumCompartments(out IntPtr enumComp);
+    }
+
+    [ComImport, Guid("bb08f7a9-607a-4384-8623-056892b64371"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface ITfCompartment
+    {
+        [PreserveSig] int SetValue(uint clientId, IntPtr pvarValue);
+        [PreserveSig] int GetValue(IntPtr pvarValue);
+    }
+
+    // ---------------- oleaut32 ----------------
+    [DllImport("oleaut32.dll")] internal static extern void VariantInit(IntPtr pvarg);
+    [DllImport("oleaut32.dll")] internal static extern int VariantClear(IntPtr pvarg);
 
     // ---------------- shcore ----------------
     [DllImport("shcore.dll")] internal static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
@@ -146,6 +171,7 @@ internal static class NativeMethods
     internal const int
         SW_HIDE = 0,
         SW_SHOWNOACTIVATE = 4,
+        VK_SHIFT = 0x10,
         VK_CAPITAL = 0x14,
         AC_SRC_OVER = 0,
         AC_SRC_ALPHA = 1;

@@ -16,14 +16,14 @@ internal sealed class MacContextMenuStrip : ContextMenuStrip
         ShowImageMargin = false;
         ShowCheckMargin = true;
         Font = UiTheme.FontMenu;
-        Padding = new Padding(6, 8, 6, 8);
+        Padding = new Padding(5, 5, 5, 5);
     }
 
     protected override Size MaxItemSize
     {
         get
         {
-            int minW = UiTheme.Dpi(this, 180);
+            int minW = UiTheme.Dpi(this, 168);
             return new Size(Math.Max(base.MaxItemSize.Width, minW), base.MaxItemSize.Height);
         }
     }

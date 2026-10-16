@@ -30,10 +30,10 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         if (e.Item.Selected && e.Item.Enabled)
         {
             float s = UiTheme.DpiScale(e.ToolStrip);
-            float padX = Math.Max(5f, 6f * s);
-            float padY = Math.Max(2f, 2f * s);
+            float padX = Math.Max(4f, 4f * s);
+            float padY = Math.Max(1.5f, 1.5f * s);
             var rect = new RectangleF(padX, padY, e.Item.Width - padX * 2f, e.Item.Height - padY * 2f);
-            using var path = MacDraw.RoundedPath(rect, Math.Max(5f, 6f * s));
+            using var path = MacDraw.RoundedPath(rect, Math.Max(4f, 5f * s));
             using var brush = new SolidBrush(UiTheme.Current.MenuHighlightBack);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.FillPath(brush, path);
@@ -43,7 +43,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
         float s = UiTheme.DpiScale(e.ToolStrip);
-        float margin = Math.Max(12f, 14f * s);
+        float margin = Math.Max(10f, 12f * s);
         int y = e.Item.Height / 2;
         e.Graphics.SmoothingMode = SmoothingMode.None;
         using var pen = new Pen(UiTheme.Current.MenuBorder, Math.Max(1f, 1f * s));
@@ -62,12 +62,12 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
             return;
 
         float s = UiTheme.DpiScale(e.ToolStrip);
-        // 统一基准缩进列（38px 标尺）：与左侧对勾保持 12px+ 优雅间距，消除文本偏左感
-        float textX = Math.Max(34f, 38f * s);
+        // 统一基准缩进列（30px 标尺）：与左侧对勾保持优雅间距
+        float textX = Math.Max(26f, 30f * s);
         var textRect = new Rectangle(
             (int)Math.Round(textX),
             0,
-            Math.Max(0, (int)Math.Round(e.Item.Width - textX - 12f * s)),
+            Math.Max(0, (int)Math.Round(e.Item.Width - textX - 10f * s)),
             e.Item.Height);
 
         UiPalette p = UiTheme.Current;
@@ -86,7 +86,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
     }
 
-    /// <summary>勾选标记改为矢量对勾（居中于胶囊内部，距左 14px，选中态纯白反白，macOS 原生观感）</summary>
+    /// <summary>勾选标记改为矢量对勾（居中于胶囊内部，距左 13px，选中态纯白反白，macOS 原生观感）</summary>
     protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
     {
         if (e.Item is MacMenuHeaderItem)
@@ -96,10 +96,10 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        // 垂直居中、距左 17px，与悬停药丸左边缘保留 12px 优雅留白
-        float checkW = Math.Max(10f, 11f * s);
-        float checkH = Math.Max(8f, 9.5f * s);
-        float x = Math.Max(15f, 17f * s);
+        // 垂直居中、距左 13px
+        float checkW = Math.Max(8.5f, 9.5f * s);
+        float checkH = Math.Max(7f, 8f * s);
+        float x = Math.Max(11f, 13f * s);
         float y = (e.Item.Height - checkH) / 2f;
 
         Color checkColor = !e.Item.Enabled
@@ -108,7 +108,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
                 ? UiTheme.Current.MenuHighlightText   // 浅色/深色选中态胶囊下纯白反白 (White Indicator)
                 : UiTheme.Current.Accent;             // 未选中态为 Apple 原厂高饱和系统蓝
 
-        using var pen = new Pen(checkColor, Math.Max(1.8f, 2.2f * s))
+        using var pen = new Pen(checkColor, Math.Max(1.6f, 2.0f * s))
         {
             StartCap = LineCap.Round,
             EndCap = LineCap.Round,

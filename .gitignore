@@ -3,6 +3,9 @@
 bin/
 obj/
 publish/
+publish_*/
+dist/
+dist_*/
 release_pkg/
 *.zip
 selftest_out/

@@ -123,29 +123,73 @@ public static class ConfigStore
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static string ConfigPath { get; } = ComputePath();
-    public static string DataDir { get; } = Path.GetDirectoryName(ComputePath())!;
+    private static readonly Lazy<string> _configPathLazy = new(ComputePath);
+    public static string ConfigPath => _configPathLazy.Value;
+    public static string DataDir => Path.GetDirectoryName(ConfigPath)!;
 
-    private static bool IsPortable()
-        => File.Exists(Path.Combine(AppContext.BaseDirectory, "portable.txt"));
+    public static bool IsPortable()
+    {
+        string baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(DataDir, baseDir, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string ComputePath()
     {
-        // 便携模式：exe 同目录放 portable.txt
-        if (IsPortable())
-            return Path.Combine(AppContext.BaseDirectory, "config.json");
+        string localConfig = Path.Combine(AppContext.BaseDirectory, "config.json");
+        string portableMarker = Path.Combine(AppContext.BaseDirectory, "portable.txt");
+
+        // 1. 已有本地配置或便携标记，直接使用软件自身目录
+        if (File.Exists(localConfig) || File.Exists(portableMarker))
+            return localConfig;
+
+        // 2. 探测软件所在目录是否具有写入权限：只要可写，默认即为纯绿色便携模式（零系统残留）
+        if (CanWriteToBaseDir())
+            return localConfig;
+
+        // 3. 仅当解压于只读位置（如 Program Files 未提权运行）时，安全降级至 LocalApplicationData
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Tcursor", "config.json");
     }
 
-    /// <summary>一次性迁移：旧版（InputTip.Caret）配置存在且本版尚无配置时复制过来（便携模式不迁移；失败不阻断启动）</summary>
+    private static bool CanWriteToBaseDir()
+    {
+        try
+        {
+            string testFile = Path.Combine(AppContext.BaseDirectory, $".tcursor_write_test_{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(testFile, "1");
+            File.Delete(testFile);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>一次性迁移：首次切换到便携模式或初次运行时，自动导入旧版配置（失败不阻断启动）</summary>
     private static void MigrateLegacyIfNeeded()
     {
         try
         {
-            if (IsPortable() || File.Exists(ConfigPath))
+            if (File.Exists(ConfigPath))
                 return;
+
+            // 1. 便携模式下且本地尚无配置时，如果用户曾使用过 AppData 配置，平滑复制过来
+            if (IsPortable())
+            {
+                string oldAppDataConfig = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Tcursor", "config.json");
+                if (File.Exists(oldAppDataConfig))
+                {
+                    Directory.CreateDirectory(DataDir);
+                    File.Copy(oldAppDataConfig, ConfigPath);
+                    return;
+                }
+            }
+
+            // 2. 旧项目历史迁移（InputTip.Caret）
             string legacy = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "InputTip.Caret", "config.json");

@@ -19,7 +19,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
     public MacMenuHeaderItem()
     {
         AutoSize = false;
-        Size = new Size(180, 56);
+        Size = new Size(168, 46);
         ToolTipText = "点击打开光标符号设置…";
     }
 
@@ -49,8 +49,8 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        int w = Owner is not null ? UiTheme.Dpi(Owner, 180) : 180;
-        int h = Owner is not null ? UiTheme.Dpi(Owner, 56) : 56;
+        int w = Owner is not null ? UiTheme.Dpi(Owner, 168) : 168;
+        int h = Owner is not null ? UiTheme.Dpi(Owner, 46) : 46;
         return new Size(w, h);
     }
 
@@ -60,12 +60,12 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
         float s = UiTheme.DpiScale(toolStrip);
-        float padX = Math.Max(5f, 6f * s);
-        float padY = Math.Max(2f, 3f * s);
+        float padX = Math.Max(4f, 5f * s);
+        float padY = Math.Max(2f, 2f * s);
         float w = Width - padX * 2f;
         float h = Height - padY * 2f;
         var cardRect = new RectangleF(padX, padY, w, h);
-        float corner = Math.Max(6f, 7f * s);
+        float corner = Math.Max(5f, 6f * s);
 
         bool isDark = UiTheme.IsDark;
         bool hover = Selected;
@@ -87,11 +87,11 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             g.DrawPath(pen, path);
         }
 
-        // 第一行：[18px 连续曲率方圆角图标] + Tcursor（加粗 Bold 700 品牌名，纯粹大气）
-        float iconSize = Math.Max(16f, 18f * s);
-        float iconX = cardRect.X + 9f * s;
-        float line1Y = cardRect.Y + 7f * s;
-        var iconRect = new RectangleF(iconX, line1Y + 1f * s, iconSize, iconSize);
+        // 第一行：[16px 连续曲率方圆角图标] + Tcursor（Bold 700 品牌名）
+        float iconSize = Math.Max(15f, 16f * s);
+        float iconX = cardRect.X + 8f * s;
+        float line1Y = cardRect.Y + 5f * s;
+        var iconRect = new RectangleF(iconX, line1Y + 0.5f * s, iconSize, iconSize);
 
         using (Bitmap? appIcon = TrayIconFactory.CreateBitmap(_paused, (int)Math.Round(iconSize)))
         {
@@ -101,22 +101,22 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             }
             else
             {
-                using var iconPath = MacDraw.RoundedPath(iconRect, Math.Max(3f, 4.5f * s));
+                using var iconPath = MacDraw.RoundedPath(iconRect, Math.Max(3f, 4f * s));
                 using var iconBrush = new SolidBrush(UiTheme.Current.Accent);
                 g.FillPath(iconBrush, iconPath);
             }
         }
 
         // Tcursor 品牌名
-        float titleX = iconRect.Right + 8f * s;
+        float titleX = iconRect.Right + 7f * s;
         TextRenderer.DrawText(g, "Tcursor", UiTheme.FontMenuHeader,
             new Point((int)Math.Round(titleX), (int)Math.Round(line1Y - 1f * s)),
             UiTheme.Current.Text, TextFormatFlags.NoPadding);
 
         // 第二行：状态呼吸圆点 + 实时状态（紧凑精炼）
-        float line2Y = cardRect.Y + 30f * s;
+        float line2Y = cardRect.Y + 23f * s;
         Color dotColor = _paused ? UiTheme.Current.TrafficYellow : UiTheme.Current.TrafficGreen;
-        float dotDiameter = Math.Max(6f, 6.5f * s);
+        float dotDiameter = Math.Max(5f, 5.5f * s);
         float dotX = iconX + 1.5f * s;
         float dotY = line2Y + 4f * s;
 
@@ -127,12 +127,12 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             ? "已暂停 · 光标隐藏"
             : (_enabledRulesCount > 0 ? $"运行中 · {_enabledRulesCount}项生效" : "运行中 · 捕获就绪");
 
-        float statusX = dotX + dotDiameter + 6f * s;
+        float statusX = dotX + dotDiameter + 5f * s;
         var statusRect = new Rectangle(
             (int)Math.Round(statusX),
             (int)Math.Round(line2Y),
-            Math.Max(0, (int)Math.Round(cardRect.Right - statusX - 8f * s)),
-            (int)Math.Round(20f * s));
+            Math.Max(0, (int)Math.Round(cardRect.Right - statusX - 6f * s)),
+            (int)Math.Round(18f * s));
 
         TextRenderer.DrawText(g, statusText, UiTheme.FontMenu,
             statusRect,

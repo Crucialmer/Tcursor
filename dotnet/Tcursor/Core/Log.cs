@@ -19,7 +19,7 @@ internal static class Log
     {
         try
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tcursor");
+            var dir = Config.ConfigStore.DataDir;
             Directory.CreateDirectory(dir);
             _filePath = Path.Combine(dir, "log.txt");
             // 简单轮转：超过 1MB 清空重来

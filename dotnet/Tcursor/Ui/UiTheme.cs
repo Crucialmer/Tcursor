@@ -212,14 +212,14 @@ internal static class UiTheme
     /// <summary>等宽代码/机器数据字体（10pt 等宽）</summary>
     public static readonly Font FontMono = new(MonoFontName, 10.0f);
 
-    /// <summary>菜单标准字体（10.5pt 常规，典雅舒朗，彻底消除过重黑体拥挤感）</summary>
-    public static readonly Font FontMenu = new(MenuFontName, 10.5f);
-    /// <summary>菜单常规字体（10.5pt 常规）</summary>
-    public static readonly Font FontMenuRegular = new(MenuFontName, 10.5f);
-    /// <summary>菜单粗体（10.5pt 粗体）</summary>
-    public static readonly Font FontMenuBold = new(MenuFontName, 10.5f, FontStyle.Bold);
-    /// <summary>菜单顶栏大标题（12.5pt Bold 700，强化品牌视觉锚点）</summary>
-    public static readonly Font FontMenuHeader = new(MenuFontName, 12.5f, FontStyle.Bold);
+    /// <summary>菜单标准字体（9.0pt Bold 700 / 严格对应 12px 粗体，小巧精致利落）</summary>
+    public static readonly Font FontMenu = new(MenuFontName, 9.0f, FontStyle.Bold);
+    /// <summary>菜单常规字体（9.0pt 常规）</summary>
+    public static readonly Font FontMenuRegular = new(MenuFontName, 9.0f);
+    /// <summary>菜单粗体（9.0pt 粗体）</summary>
+    public static readonly Font FontMenuBold = new(MenuFontName, 9.0f, FontStyle.Bold);
+    /// <summary>菜单顶栏大标题（11.5pt Bold 700，紧凑精致）</summary>
+    public static readonly Font FontMenuHeader = new(MenuFontName, 11.5f, FontStyle.Bold);
 
     /// <summary>窗体大标题（16pt 粗体）</summary>
     public static readonly Font FontTitle = new(PrimaryFontName, 16f, FontStyle.Bold);
