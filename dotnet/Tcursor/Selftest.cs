@@ -249,7 +249,8 @@ internal static class Selftest
                     testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
                     testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
 
-                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, 268), UiTheme.Dpi(testMenu, 58));
+                    headerItem.Size = new Size(UiTheme.Dpi(testMenu, 216), UiTheme.Dpi(testMenu, 58));
+                    testMenu.MinimumSize = new Size(UiTheme.Dpi(testMenu, 216), 0);
                     testMenu.Show(hostForm, 0, 0);
                     Application.DoEvents();
                     using var menuBmp = new Bitmap(testMenu.Width, testMenu.Height);

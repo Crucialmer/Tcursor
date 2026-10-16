@@ -23,7 +23,7 @@ internal sealed class MacContextMenuStrip : ContextMenuStrip
     {
         get
         {
-            int minW = UiTheme.Dpi(this, 280);
+            int minW = UiTheme.Dpi(this, 216);
             return new Size(Math.Max(base.MaxItemSize.Width, minW), base.MaxItemSize.Height);
         }
     }

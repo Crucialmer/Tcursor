@@ -15,14 +15,12 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 {
     private bool _paused;
     private int _enabledRulesCount;
-    private readonly string _versionText;
 
     public MacMenuHeaderItem()
     {
         AutoSize = false;
-        Size = new Size(280, 64);
+        Size = new Size(216, 58);
         ToolTipText = "点击打开光标符号设置…";
-        _versionText = $"v{AppInfo.Version}";
     }
 
     protected override void OnMouseEnter(EventArgs e)
@@ -51,8 +49,8 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        int w = Owner is not null ? UiTheme.Dpi(Owner, 280) : 280;
-        int h = Owner is not null ? UiTheme.Dpi(Owner, 64) : 64;
+        int w = Owner is not null ? UiTheme.Dpi(Owner, 216) : 216;
+        int h = Owner is not null ? UiTheme.Dpi(Owner, 58) : 58;
         return new Size(w, h);
     }
 
@@ -89,10 +87,10 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             g.DrawPath(pen, path);
         }
 
-        // 第一行：[18px 连续曲率方圆角图标] + Tcursor（加粗 Bold 700）+ [右侧版本徽标胶囊]
+        // 第一行：[18px 连续曲率方圆角图标] + Tcursor（加粗 Bold 700 品牌名，纯粹大气）
         float iconSize = Math.Max(16f, 18f * s);
-        float iconX = cardRect.X + 10f * s;
-        float line1Y = cardRect.Y + 8f * s;
+        float iconX = cardRect.X + 9f * s;
+        float line1Y = cardRect.Y + 7f * s;
         var iconRect = new RectangleF(iconX, line1Y + 1f * s, iconSize, iconSize);
 
         using (Bitmap? appIcon = TrayIconFactory.CreateBitmap(_paused, (int)Math.Round(iconSize)))
@@ -115,27 +113,10 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             new Point((int)Math.Round(titleX), (int)Math.Round(line1Y - 1f * s)),
             UiTheme.Current.Text, TextFormatFlags.NoPadding);
 
-        // 精细磨砂半透明版本徽标胶囊
-        Size verTextSize = TextRenderer.MeasureText(_versionText, UiTheme.FontCaption);
-        float verBadgeW = verTextSize.Width + 10f * s;
-        float verBadgeH = Math.Max(16f, 18f * s);
-        float verBadgeX = cardRect.Right - verBadgeW - 10f * s;
-        float verBadgeY = line1Y + 1f * s;
-        var verRect = new RectangleF(verBadgeX, verBadgeY, verBadgeW, verBadgeH);
-        using (var verPath = MacDraw.RoundedPath(verRect, Math.Max(3f, 4f * s)))
-        {
-            Color verBg = isDark ? Color.FromArgb(32, 255, 255, 255) : Color.FromArgb(18, 0, 0, 0);
-            using var verBrush = new SolidBrush(verBg);
-            g.FillPath(verBrush, verPath);
-        }
-        var verTextRect = new Rectangle((int)verBadgeX, (int)verBadgeY, (int)verBadgeW, (int)verBadgeH);
-        TextRenderer.DrawText(g, _versionText, UiTheme.FontCaption, verTextRect, UiTheme.Current.Dim,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-
-        // 第二行：状态呼吸圆点 + 实时状态
-        float line2Y = cardRect.Y + 34f * s;
+        // 第二行：状态呼吸圆点 + 实时状态（紧凑精炼）
+        float line2Y = cardRect.Y + 30f * s;
         Color dotColor = _paused ? UiTheme.Current.TrafficYellow : UiTheme.Current.TrafficGreen;
-        float dotDiameter = Math.Max(6f, 7f * s);
+        float dotDiameter = Math.Max(6f, 6.5f * s);
         float dotX = iconX + 1.5f * s;
         float dotY = line2Y + 4f * s;
 
@@ -143,8 +124,8 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             g.FillEllipse(dotBrush, dotX, dotY, dotDiameter, dotDiameter);
 
         string statusText = _paused
-            ? "已暂停 · 光标符号已隐藏"
-            : (_enabledRulesCount > 0 ? $"运行中 · 白名单已匹配 {_enabledRulesCount} 项" : "运行中 · 光标捕获就绪");
+            ? "已暂停 · 光标隐藏"
+            : (_enabledRulesCount > 0 ? $"运行中 · {_enabledRulesCount}项生效" : "运行中 · 捕获就绪");
 
         float statusX = dotX + dotDiameter + 6f * s;
         var statusRect = new Rectangle(
@@ -153,7 +134,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             Math.Max(0, (int)Math.Round(cardRect.Right - statusX - 8f * s)),
             (int)Math.Round(20f * s));
 
-        TextRenderer.DrawText(g, statusText, UiTheme.Font,
+        TextRenderer.DrawText(g, statusText, UiTheme.FontMenu,
             statusRect,
             UiTheme.Current.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
