@@ -16,7 +16,7 @@ internal sealed class MacContextMenuStrip : ContextMenuStrip
         ShowImageMargin = false;
         ShowCheckMargin = true;
         Font = UiTheme.FontMenu;
-        Padding = new Padding(5, 5, 5, 5);
+        Padding = new Padding(5, 6, 5, 6);
     }
 
     protected override Size MaxItemSize

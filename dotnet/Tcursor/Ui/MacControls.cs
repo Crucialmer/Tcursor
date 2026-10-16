@@ -557,6 +557,24 @@ internal sealed class MacCard : Panel
             : new Padding(16, 38, 16, 12);
     }
 
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        int innerW = proposedSize.Width > 0 ? Math.Max(0, proposedSize.Width - Padding.Horizontal) : 0;
+        int maxH = 0;
+        int maxW = 0;
+        foreach (Control c in Controls)
+        {
+            if (!c.Visible) continue;
+            Size s = c.GetPreferredSize(new Size(innerW, 0));
+            maxH = Math.Max(maxH, s.Height);
+            maxW = Math.Max(maxW, s.Width);
+        }
+        int minH = MinimumSize.Height;
+        int minW = MinimumSize.Width;
+        return new Size(Math.Max(Math.Max(maxW + Padding.Horizontal, 200), minW),
+                        Math.Max(maxH + Padding.Vertical, minH));
+    }
+
     protected override void OnDpiChangedAfterParent(EventArgs e)
     {
         base.OnDpiChangedAfterParent(e);

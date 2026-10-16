@@ -235,19 +235,19 @@ internal static class Selftest
                     var headerItem = new MacMenuHeaderItem();
                     headerItem.UpdateStatus(false, 3);
                     testMenu.Items.Add(headerItem);
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
-                    testMenu.Items.Add(new ToolStripMenuItem("暂停") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    var startupItem = new ToolStripMenuItem("开机自启动") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4), Checked = true };
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("暂停") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    var startupItem = new ToolStripMenuItem("开机自启动") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6), Checked = true };
                     testMenu.Items.Add(startupItem);
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
-                    testMenu.Items.Add(new ToolStripMenuItem("光标符号设置…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("白名单规则…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("窗口信息…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
-                    testMenu.Items.Add(new ToolStripMenuItem("打开配置文件") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("检查更新…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
-                    testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) });
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("光标符号设置…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("白名单规则…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("窗口信息…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
+                    testMenu.Items.Add(new ToolStripMenuItem("打开配置文件") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("检查更新…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("关于 Tcursor…") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
+                    testMenu.Items.Add(new ToolStripMenuItem("退出 Tcursor") { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) });
 
                     headerItem.Size = new Size(UiTheme.Dpi(testMenu, menuWidth), UiTheme.Dpi(testMenu, 46));
                     testMenu.MinimumSize = new Size(UiTheme.Dpi(testMenu, menuWidth), 0);
@@ -274,15 +274,35 @@ internal static class Selftest
                     form.Close();
                 }
 
+                void RenderSettingsAllTabs(bool dark, string suffix)
+                {
+                    UiTheme.Apply(dark);
+                    using var f0 = new SettingsForm(config);
+                    f0.SelectTab(0);
+                    RenderFormSample(f0, $"form-settings{suffix}.png");
+
+                    using var f1 = new SettingsForm(config);
+                    f1.SelectTab(1);
+                    RenderFormSample(f1, $"form-settings-appearance{suffix}.png");
+
+                    using var f2 = new SettingsForm(config);
+                    f2.SelectTab(2);
+                    RenderFormSample(f2, $"form-settings-behavior{suffix}.png");
+
+                    using var f3 = new SettingsForm(config);
+                    f3.SelectTab(3);
+                    RenderFormSample(f3, $"form-settings-system{suffix}.png");
+                }
+
                 UiTheme.Apply(false);
                 using (var fAbout = new AboutForm()) RenderFormSample(fAbout, "form-about-light.png");
-                using (var fSettings = new SettingsForm(config)) RenderFormSample(fSettings, "form-settings-light.png");
+                RenderSettingsAllTabs(false, "-light");
                 using (var fRules = new RulesForm(config)) RenderFormSample(fRules, "form-rules-light.png");
                 using (var fWinInfo = new WindowInfoForm(config, () => { })) RenderFormSample(fWinInfo, "form-windowinfo-light.png");
 
                 UiTheme.Apply(true);
                 using (var fAbout = new AboutForm()) RenderFormSample(fAbout, "form-about-dark.png");
-                using (var fSettings = new SettingsForm(config)) RenderFormSample(fSettings, "form-settings-dark.png");
+                RenderSettingsAllTabs(true, "-dark");
                 using (var fRules = new RulesForm(config)) RenderFormSample(fRules, "form-rules-dark.png");
                 using (var fWinInfo = new WindowInfoForm(config, () => { })) RenderFormSample(fWinInfo, "form-windowinfo-dark.png");
             }

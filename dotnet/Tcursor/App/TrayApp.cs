@@ -49,7 +49,7 @@ internal sealed class TrayApp : ApplicationContext
         _brandHeader.Click += (_, _) => OpenSettings();
 
         ToolStripMenuItem MakeItem(string text, EventHandler? onClick = null)
-            => new(text, null, onClick) { Font = UiTheme.FontMenu, Padding = new Padding(8, 4, 8, 4) };
+            => new(text, null, onClick) { Font = UiTheme.FontMenu, Padding = new Padding(8, 6, 8, 6) };
 
         _toggleItem = MakeItem("暂停", (_, _) => TogglePause());
         _startupItem = MakeItem("开机自启动", (_, _) => ToggleStartup());
@@ -86,18 +86,18 @@ internal sealed class TrayApp : ApplicationContext
         };
 
         menu.Items.Add(_brandHeader);
-        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
         menu.Items.Add(_toggleItem);
-        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
         menu.Items.Add(MakeItem("光标符号设置…", (_, _) => OpenSettings()));
         menu.Items.Add(MakeItem("白名单规则…", (_, _) => OpenRules()));
         menu.Items.Add(MakeItem("窗口信息…", (_, _) => OpenWindowInfo()));
-        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
         menu.Items.Add(MakeItem("打开配置文件", (_, _) => OpenConfigFile()));
         menu.Items.Add(MakeItem("打开数据目录", (_, _) => OpenDataDir()));
         menu.Items.Add(MakeItem("重新加载配置", (_, _) => ReloadConfig()));
         menu.Items.Add(_startupItem);
-        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 2, 0, 2) });
+        menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
         _updateItem = MakeItem("检查更新…", (_, _) => OnUpdateMenu());
         menu.Items.Add(_updateItem);
         menu.Items.Add(MakeItem("关于 Tcursor…", (_, _) => ShowAbout()));

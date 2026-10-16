@@ -221,8 +221,8 @@ internal static class UiTheme
     /// <summary>菜单顶栏大标题（11.5pt Bold 700，紧凑精致）</summary>
     public static readonly Font FontMenuHeader = new(MenuFontName, 11.5f, FontStyle.Bold);
 
-    /// <summary>窗体大标题（16pt 粗体）</summary>
-    public static readonly Font FontTitle = new(PrimaryFontName, 16f, FontStyle.Bold);
+    /// <summary>窗体大标题（11.5pt 粗体，macOS 26 优雅居中标题比例）</summary>
+    public static readonly Font FontTitle = new(PrimaryFontName, 11.5f, FontStyle.Bold);
     /// <summary>超大展示标题（关于窗口等，22pt 粗体）</summary>
     public static readonly Font FontHero = new(PrimaryFontName, 22f, FontStyle.Bold);
 

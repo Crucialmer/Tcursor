@@ -56,6 +56,19 @@ internal sealed class SettingsForm : MacDialogForm
     private readonly MacSlider _transparency = new() { Minimum = 0, Maximum = 255, Value = 255, Width = 160, BackColor = UiTheme.CardBg };
     private readonly Label _transparencyLabel = new() { AutoSize = true, ForeColor = UiTheme.Text, BackColor = UiTheme.CardBg };
     private readonly MacRadio[] _stateCornerButtons;
+    private readonly MacCheck _syncAllStatesCorner = new() { Text = "同步应用至所有状态", Checked = true, BackColor = UiTheme.CardBg };
+
+    // 各分页面板引用（便于 DPI 缩放与自适应布局维持行高，彻底防止挤压遮挡）
+    private TableLayoutPanel? _appearancePanel;
+    private TableLayoutPanel? _behaviorPanel;
+    private TableLayoutPanel? _systemPanel;
+    private MacCard? _cornerCard;
+    private MacCard? _edgeCard;
+    private MacCard? _posCard;
+    private MacCard? _lifeCard;
+    private MacCard? _captureCard;
+    private MacCard? _updateCard;
+    private MacCard? _dataCard;
 
     // ----- Tab 1: 外观与位置 -----
     private readonly MacRadio[] _cornerButtons;
@@ -67,10 +80,10 @@ internal sealed class SettingsForm : MacDialogForm
 
     // ----- Tab 2: 行为与捕获 -----
     private readonly MacSwitch _enabled = new() { Text = "启用光标符号 (主开关)", BackColor = UiTheme.CardBg };
-    private readonly MacNumberField _idleStop = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 90, BackColor = UiTheme.CardBg };
-    private readonly MacNumberField _hideDelay = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 90, BackColor = UiTheme.CardBg };
-    private readonly MacNumberField _pollInterval = new() { Minimum = 5, Maximum = 200, Increment = 5, Width = 80, BackColor = UiTheme.CardBg };
-    private readonly MacField _chain = new() { Width = 220, BackColor = UiTheme.CardBg };
+    private readonly MacNumberField _idleStop = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 110, BackColor = UiTheme.CardBg };
+    private readonly MacNumberField _hideDelay = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 110, BackColor = UiTheme.CardBg };
+    private readonly MacNumberField _pollInterval = new() { Minimum = 5, Maximum = 200, Increment = 5, Width = 110, BackColor = UiTheme.CardBg };
+    private readonly MacField _chain = new() { Width = 260, BackColor = UiTheme.CardBg };
     private readonly MacSwitch _tsfFallback = new() { Text = "TSF 光标读取 (微信、QQ、WPS 等封闭客户端回退支持)", BackColor = UiTheme.CardBg };
 
     // ----- Tab 3: 系统与更新 -----
@@ -215,6 +228,7 @@ internal sealed class SettingsForm : MacDialogForm
             radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) UpdatePreview(); };
         foreach (var radio in _edgeButtons)
             radio.CheckedChanged += (_, _) => { if (!_loading && radio.Checked) UpdatePreview(); };
+        _syncAllStatesCorner.CheckedChanged += (_, _) => { if (!_loading && _syncAllStatesCorner.Checked) { CommitCurrent(); UpdatePreview(); } };
 
         ShowPane(0);
         LoadValues();
@@ -222,6 +236,14 @@ internal sealed class SettingsForm : MacDialogForm
         ResumeLayout(false);
         PerformLayout();
         ApplyDpiMetrics();
+    }
+
+    /// <summary>切换选中的设置标签页（0: 状态与符号, 1: 外观与位置, 2: 行为与捕获, 3: 系统与更新）</summary>
+    public void SelectTab(int index)
+    {
+        int i = Math.Clamp(index, 0, _panes.Length - 1);
+        _segmented.SelectedIndex = i;
+        ShowPane(i);
     }
 
     private void ShowPane(int index)
@@ -314,6 +336,27 @@ internal sealed class SettingsForm : MacDialogForm
         _transparencyLabel.Margin = new Padding(8, 6, 0, 0);
         transFlow.Controls.Add(_transparencyLabel);
         AddStyleRow("不透明度", transFlow);
+
+        var cornerActionFlow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = UiTheme.CardBg,
+            Margin = new Padding(0, 4, 0, 0),
+        };
+        _syncAllStatesCorner.Margin = new Padding(0, 4, 10, 0);
+        cornerActionFlow.Controls.Add(_syncAllStatesCorner);
+        var applyAllBtn = UiTheme.Button("应用至全部状态", width: 110);
+        applyAllBtn.Height = 26;
+        applyAllBtn.Click += (_, _) =>
+        {
+            _syncAllStatesCorner.Checked = true;
+            CommitCurrent();
+            UpdatePreview();
+        };
+        cornerActionFlow.Controls.Add(applyAllBtn);
+        stateCornerFlow.Controls.Add(cornerActionFlow);
+
         AddStyleRow("形状圆角", stateCornerFlow);
 
         styleCard.Controls.Add(styleTable);
@@ -333,20 +376,33 @@ internal sealed class SettingsForm : MacDialogForm
             Margin = new Padding(0),
             BackColor = UiTheme.WindowBg,
         };
+        _appearancePanel = panel;
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 120)));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 100)));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 135)));
 
-        var cornerCard = new MacCard("全局默认圆角 (Apple Squircle 连续曲率)") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
-        cornerCard.Controls.Add(cornerFlow);
-        panel.Controls.Add(cornerCard, 0, 0);
+        _cornerCard = new MacCard("全局默认圆角 (Apple Squircle 连续曲率)")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 10),
+        };
+        _cornerCard.Controls.Add(cornerFlow);
+        panel.Controls.Add(_cornerCard, 0, 0);
 
-        var edgeCard = new MacCard("边框与立体光效 (macOS 原生效果)") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
-        edgeCard.Controls.Add(edgeFlow);
-        panel.Controls.Add(edgeCard, 0, 1);
+        _edgeCard = new MacCard("边框与立体光效 (macOS 原生效果)")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 10),
+        };
+        _edgeCard.Controls.Add(edgeFlow);
+        panel.Controls.Add(_edgeCard, 0, 1);
 
-        var posCard = new MacCard("光标相对位置与全局偏移微调") { Dock = DockStyle.Fill, Margin = new Padding(0) };
+        _posCard = new MacCard("光标相对位置与全局偏移微调")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+        };
         var posTable = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -374,8 +430,8 @@ internal sealed class SettingsForm : MacDialogForm
         posTable.Controls.Add(posRadios, 1, 0);
         posTable.Controls.Add(new Label { Text = "全局偏移", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, 1);
         posTable.Controls.Add(offsetFlow, 1, 1);
-        posCard.Controls.Add(posTable);
-        panel.Controls.Add(posCard, 0, 2);
+        _posCard.Controls.Add(posTable);
+        panel.Controls.Add(_posCard, 0, 2);
 
         return panel;
     }
@@ -390,22 +446,43 @@ internal sealed class SettingsForm : MacDialogForm
             Margin = new Padding(0),
             BackColor = UiTheme.WindowBg,
         };
+        _behaviorPanel = panel;
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 215)));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 140)));
 
-        var lifeCard = new MacCard("核心显示时机与生命周期") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
+        _lifeCard = new MacCard("核心显示时机与生命周期")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 12),
+        };
         var lifeTable = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = UiTheme.CardBg };
-        lifeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        lifeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
         lifeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         int r = 0;
         void AddLifeRow(string label, Control control)
         {
+            var flow = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                BackColor = UiTheme.CardBg,
+                Margin = new Padding(0),
+            };
+            flow.Controls.Add(control);
+
             lifeTable.RowCount = r + 1;
             lifeTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            lifeTable.Controls.Add(new Label { Text = label, AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, r);
-            lifeTable.Controls.Add(control, 1, r);
+            lifeTable.Controls.Add(new Label
+            {
+                Text = label,
+                AutoSize = true,
+                Font = UiTheme.FontBold,
+                ForeColor = UiTheme.Text,
+                Margin = new Padding(0, 8, 8, 4),
+                BackColor = UiTheme.CardBg
+            }, 0, r);
+            lifeTable.Controls.Add(flow, 1, r);
             r++;
         }
 
@@ -413,23 +490,35 @@ internal sealed class SettingsForm : MacDialogForm
         AddLifeRow("空闲暂停(ms)", _idleStop);
         AddLifeRow("隐藏延时(ms)", _hideDelay);
         AddLifeRow("轮询周期(ms)", _pollInterval);
-        lifeCard.Controls.Add(lifeTable);
-        panel.Controls.Add(lifeCard, 0, 0);
+        _lifeCard.Controls.Add(lifeTable);
+        panel.Controls.Add(_lifeCard, 0, 0);
 
-        var captureCard = new MacCard("物理光标捕获与回退引擎") { Dock = DockStyle.Fill, Margin = new Padding(0) };
+        _captureCard = new MacCard("物理光标捕获与回退引擎")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+        };
         var capTable = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = UiTheme.CardBg };
-        capTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        capTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
         capTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         capTable.RowCount = 2;
         capTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         capTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         capTable.Controls.Add(new Label { Text = "默认捕获链", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, 0);
-        capTable.Controls.Add(_chain, 1, 0);
+
+        var chainFlow = new FlowLayoutPanel { AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
+        chainFlow.Controls.Add(_chain);
+        capTable.Controls.Add(chainFlow, 1, 0);
+
         capTable.Controls.Add(new Label { Text = "封闭应用回退", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, 1);
-        capTable.Controls.Add(_tsfFallback, 1, 1);
-        captureCard.Controls.Add(capTable);
-        panel.Controls.Add(captureCard, 0, 1);
+
+        var tsfFlow = new FlowLayoutPanel { AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
+        tsfFlow.Controls.Add(_tsfFallback);
+        capTable.Controls.Add(tsfFlow, 1, 1);
+
+        _captureCard.Controls.Add(capTable);
+        panel.Controls.Add(_captureCard, 0, 1);
 
         return panel;
     }
@@ -444,18 +533,27 @@ internal sealed class SettingsForm : MacDialogForm
             Margin = new Padding(0),
             BackColor = UiTheme.WindowBg,
         };
+        _systemPanel = panel;
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 120)));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Dpi(this, 135)));
 
-        var updateCard = new MacCard("软件自动更新") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
-        var updateBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
+        _updateCard = new MacCard("软件自动更新")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 10),
+        };
+        var updateBox = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
         updateBox.Controls.Add(_updateAutoCheck);
         updateBox.Controls.Add(_updateAutoDownload);
-        updateCard.Controls.Add(updateBox);
-        panel.Controls.Add(updateCard, 0, 0);
+        _updateCard.Controls.Add(updateBox);
+        panel.Controls.Add(_updateCard, 0, 0);
 
-        var dataCard = new MacCard("排障与数据存储") { Dock = DockStyle.Fill, Margin = new Padding(0) };
+        _dataCard = new MacCard("排障与数据存储")
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+        };
         var dataTable = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = UiTheme.CardBg };
         dataTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
         dataTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -475,8 +573,8 @@ internal sealed class SettingsForm : MacDialogForm
         dataTable.Controls.Add(_logEnabled, 1, 0);
         dataTable.Controls.Add(new Label { Text = "文件目录", AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, 1);
         dataTable.Controls.Add(dirButtons, 1, 1);
-        dataCard.Controls.Add(dataTable);
-        panel.Controls.Add(dataCard, 0, 1);
+        _dataCard.Controls.Add(dataTable);
+        panel.Controls.Add(_dataCard, 0, 1);
 
         return panel;
     }
@@ -493,7 +591,7 @@ internal sealed class SettingsForm : MacDialogForm
     private static MacRadio[] BuildRadioGroup((string Text, int Value)[] options, out FlowLayoutPanel flow)
     {
         var radios = new MacRadio[options.Length];
-        flow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
+        flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Margin = new Padding(0), BackColor = UiTheme.CardBg };
         for (int i = 0; i < options.Length; i++)
         {
             radios[i] = new MacRadio { Text = options[i].Text, BackColor = UiTheme.CardBg, Margin = new Padding(0, 4, 14, 4) };
@@ -507,6 +605,23 @@ internal sealed class SettingsForm : MacDialogForm
         int itemHeight = UiTheme.Dpi(_stateList, 40);
         if (_stateList.ItemHeight != itemHeight)
             _stateList.ItemHeight = itemHeight;
+
+        if (_appearancePanel is not null && _appearancePanel.RowStyles.Count >= 3)
+        {
+            _appearancePanel.RowStyles[0].Height = UiTheme.Dpi(this, 120);
+            _appearancePanel.RowStyles[1].Height = UiTheme.Dpi(this, 100);
+            _appearancePanel.RowStyles[2].Height = UiTheme.Dpi(this, 135);
+        }
+        if (_behaviorPanel is not null && _behaviorPanel.RowStyles.Count >= 2)
+        {
+            _behaviorPanel.RowStyles[0].Height = UiTheme.Dpi(this, 215);
+            _behaviorPanel.RowStyles[1].Height = UiTheme.Dpi(this, 140);
+        }
+        if (_systemPanel is not null && _systemPanel.RowStyles.Count >= 2)
+        {
+            _systemPanel.RowStyles[0].Height = UiTheme.Dpi(this, 120);
+            _systemPanel.RowStyles[1].Height = UiTheme.Dpi(this, 135);
+        }
     }
 
     protected override void OnLoad(EventArgs e)
@@ -583,6 +698,8 @@ internal sealed class SettingsForm : MacDialogForm
             _updateAutoCheck.Checked = _config.UpdateAutoCheck;
             _updateAutoDownload.Checked = _config.UpdateAutoDownload;
             _tsfFallback.Checked = _config.TsfFallback;
+            bool allCornersSame = _edit.Values.Select(v => v.CornerPreference).Distinct().Count() <= 1;
+            _syncAllStatesCorner.Checked = allCornersSame;
         }
         finally
         {
@@ -639,7 +756,13 @@ internal sealed class SettingsForm : MacDialogForm
         s.ShapeWidth = (int)_shapeWidth.Value;
         s.ShapeHeight = (int)_shapeHeight.Value;
         s.Transparency = _transparency.Value;
-        s.CornerPreference = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
+        int cornerVal = CurrentRadio(_stateCornerButtons, StateCornerOptions, -1);
+        s.CornerPreference = cornerVal;
+        if (_syncAllStatesCorner.Checked)
+        {
+            foreach (var style in _edit.Values)
+                style.CornerPreference = cornerVal;
+        }
     }
 
     private void CollectAndApply()

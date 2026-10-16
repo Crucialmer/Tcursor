@@ -31,7 +31,7 @@ internal sealed class MacMenuRenderer : ToolStripProfessionalRenderer
         {
             float s = UiTheme.DpiScale(e.ToolStrip);
             float padX = Math.Max(4f, 4f * s);
-            float padY = Math.Max(1.5f, 1.5f * s);
+            float padY = Math.Max(2f, 2f * s);
             var rect = new RectangleF(padX, padY, e.Item.Width - padX * 2f, e.Item.Height - padY * 2f);
             using var path = MacDraw.RoundedPath(rect, Math.Max(4f, 5f * s));
             using var brush = new SolidBrush(UiTheme.Current.MenuHighlightBack);
