@@ -8,6 +8,8 @@
 
 **Tcursor 2.0 正式版** 是一次专注于**状态识别可靠性**、**纯绿色便携体验**、**轻量分发机制**与**托盘紧凑美学**的重大升级。针对用户在 Quicker 等特殊提权程序中的输入法识别断连、便携零残留、超轻量小包借用系统运行时以及高对比度菜单紧凑美观等核心诉求，进行了深度的架构优化与打磨。
 
+从 2.0 版本起，官方发布全面转向**超轻量小压缩包**分发：安装包体积从原先的 44MB 骤降至仅约 **600 KB**（缩减超过 98%！）。
+
 ---
 
 ### 二、核心功能与特性亮点
@@ -18,10 +20,9 @@
 - **TSF 全局共享仓（Global Compartment）只读通道**：接入 Windows 文本服务框架全局共享仓，直接监听底层键盘开闭状态（`GUID_COMPARTMENT_KEYBOARD_OPENCLOSE`）与模式转换（`GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`）。
 - **智能状态保持与物理 Shift 键追踪**：遭遇未知或跨权限阻断窗口时，智能沿用最近有效状态，结合物理 Shift 键判定，拒绝盲目回滚英文，实现平滑稳定的输入法状态感知。
 
-#### 2. 轻量小压缩包支持（借用系统 .NET 10 官方运行时，仅约 600KB）
-- **机制原理**：推出框架依赖版（Framework-Dependent）分发包，不捆绑内置运行库，启动时自动借用 Windows 系统官方已安装的 .NET 10 Desktop Runtime。
-- **Windows Update 自动提速与安全修补**：当微软通过 Windows Update 静默推送 .NET 10 补丁、JIT 编译器 Loop 优化、Vector 向量化提速或 GC 减停顿时，**用户完全无需重新下载软件**，下一次启动自动无缝享受到这些最新底层成果！
-- **双版本按需选择**：提供免安装任何运行库的独立版（`Tcursor.zip`，~44MB）与极客轻量版（`Tcursor-light.zip`，~600KB）。
+#### 2. 超轻量小文件版机制（借用系统 .NET 10 官方运行时，仅约 600KB）
+- **极小体积**：不捆绑庞大的内置运行库，每次启动直接借用电脑系统已安装的官方 .NET 10 Desktop Runtime，`Tcursor.zip` 压缩包仅约 **600 KB**，下载秒成，毫无负担。
+- **Windows Update 自动提速与安全修补**：当微软通过 Windows Update 静默推送 .NET 10 累积更新补丁、JIT 编译器 Loop 优化、Vector 向量化提速或 GC 减停顿时，**用户完全无需重新下载软件**，下一次启动自动无缝享受到这些最新底层成果！
 
 #### 3. 本地文件生成与真正零系统残留（纯绿色便携）
 - **自动优先本地模式**：程序启动时动态探测所在目录写权限，只要可写（如解压在常用软件目录、桌面、移动盘等），默认直接作为纯便携模式运行，`config.json` 与 `log.txt` 全部保存在程序自身文件夹内，无需手动放置标记文件。
@@ -37,34 +38,25 @@
 
 ### 三、下载与使用说明
 
-1. **标准独立版**：下载下方附件 `Tcursor.zip`（自包含单文件，约 44 MB，无需安装任何运行库，解压即用）；
-2. **极客轻量版**：已安装 .NET 10 桌面运行时的用户可下载 `Tcursor-light.zip`（仅约 600 KB，极速启动，享受 Windows Update 自动加固与提速）；
-3. 解压后进入 `Tcursor` 文件夹，运行 `Tcursor.exe`（在系统托盘后台常驻）；
-4. 右键托盘图标可进行白名单规则配置、光标样式设置与状态监控。
+1. 下载下方附件 `Tcursor.zip`（仅约 600 KB，需本机安装有官方 .NET 10 桌面运行时）；
+2. 解压后进入 `Tcursor` 文件夹，运行 `Tcursor.exe`（在系统托盘后台常驻）；
+3. 右键托盘图标可进行白名单规则配置、光标样式设置与状态监控。
 
 ---
 
 ### 四、发布资产与哈希校验
 
-解压 zip 后为 `Tcursor/` 文件夹，包含 `Tcursor.exe`、`Tcursor.pdb`、`LICENSE` 以及 `THIRD-PARTY-NOTICES.txt`。
+解压 `Tcursor.zip` 后为 `Tcursor/` 文件夹，包含 `Tcursor.exe`、`Tcursor.pdb`、`LICENSE` 以及 `THIRD-PARTY-NOTICES.txt`。
 
-#### 1. 标准独立版（自包含包，免装运行库）
 - **压缩包名称**：`Tcursor.zip`
-- **压缩包大小**：46,563,493 字节（约 44.4 MB）
-- **zip sha256**: CAB0455A3229D94D554E4FD9136328FAE2584C15E937BEC9E05CB10DA7288B5E
-- **主程序大小**：52,148,817 字节（约 49.7 MB）
-- **exe sha256**: 9D86FD06AEB54DA0F48654CB3246FEC0ABFC02E168BA46082D7C0AA789D746CF
-
-#### 2. 极客轻量版（框架依赖包，需 .NET 10 桌面运行时）
-- **压缩包名称**：`Tcursor-light.zip`
-- **压缩包大小**：618,286 字节（约 603 KB）
-- **zip sha256**: 4561C581CCA131DEAEA2B27666AD496D4D5059ECF5CFCB624AE34207B883A28C
+- **压缩包大小**：618,287 字节（约 603 KB）
+- **zip sha256**: CB17DF3461933601D13E4447B8E0D380915FE80C0C70A5FF379C3483932AFE9D
 - **主程序大小**：1,310,623 字节（约 1.25 MB）
-- **exe sha256**: 234851CE6C75417D2013C3842FB425C3D250253A2B70902E64F03332ACCF5DC6
+- **exe sha256**: A4F17CD57753DC31AA92397BFFE146BFAA4B70DAF173ECBB91A2957D6F665176
 
 ---
 
 ### 五、开源协议与鸣谢
 
 - 本软件以 **GNU 通用公共许可证第 3 版（GPL-3.0）** 发布，© 2026 Crucialmer。
-- 分发包内所包含的第三方开源组件（.NET 运行时、FlaUI.UIA3 等，均为 MIT 协议）详见 `THIRD-PARTY-NOTICES.txt`。
+- 分发包内所包含的第三方开源组件（FlaUI.UIA3 等，均为 MIT 协议）详见 `THIRD-PARTY-NOTICES.txt`。

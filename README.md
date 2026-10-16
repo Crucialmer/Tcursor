@@ -1,10 +1,10 @@
 # Tcursor（输入法状态光标提示）
 
-在光标旁显示**输入法状态符号**的 Windows 小工具：中文 / 英文 / 大写 / 英文键盘 / 日文 / 韩文六种状态，颜色与形状均可自定义。采用 C#/.NET（WinForms）实现、自包含单文件，免安装运行库；当前版本 **2.0（正式版）**；源码与构建说明见 [`dotnet/`](dotnet/README.md)。
+在光标旁显示**输入法状态符号**的 Windows 小工具：中文 / 英文 / 大写 / 英文键盘 / 日文 / 韩文六种状态，颜色与形状均可自定义。采用 C#/.NET（WinForms）实现，轻量绿色单文件，基于系统 .NET 10 官方桌面运行时；当前版本 **2.0（正式版）**；源码与构建说明见 [`dotnet/`](dotnet/README.md)。
 
 ## 下载与使用
 
-1. 从 [Releases](https://github.com/Crucialmer/Tcursor/releases) 下载 `Tcursor.zip`（自包含单文件，约 46 MB，无需安装任何运行库；亦可选用轻量版 `Tcursor-light.zip`，仅约 800KB）；
+1. 从 [Releases](https://github.com/Crucialmer/Tcursor/releases) 下载 `Tcursor.zip`（轻量单文件包，仅约 600 KB，每次启动借用系统官方 .NET 10 运行时）；
 2. 解压后进入 `Tcursor` 文件夹，运行 `Tcursor.exe`（托盘常驻）；
 3. 右键托盘图标 →“窗口信息”确认目标程序信息，并在“白名单规则”中添加要生效的程序（**白名单为空时不显示任何符号**）；
 4. 在“光标符号设置”中调整颜色 / 尺寸 / 圆角 / 边框样式等外观。
