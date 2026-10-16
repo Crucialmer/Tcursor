@@ -261,6 +261,29 @@ internal static class Selftest
                 RenderMenuSample(false, "tray-menu-light.png");
                 RenderMenuSample(true, "tray-menu-dark.png");
                 sb.AppendLine("tray-menu: OK -> tray-menu-light.png / tray-menu-dark.png");
+
+                void RenderFormSample(Form form, string fileName)
+                {
+                    form.Location = new Point(-4000, -4000);
+                    form.Show();
+                    Application.DoEvents();
+                    using var bmp = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bmp, new Rectangle(0, 0, form.Width, form.Height));
+                    bmp.Save(Path.Combine(outDir, fileName), ImageFormat.Png);
+                    form.Close();
+                }
+
+                UiTheme.Apply(false);
+                using (var fAbout = new AboutForm()) RenderFormSample(fAbout, "form-about-light.png");
+                using (var fSettings = new SettingsForm(config)) RenderFormSample(fSettings, "form-settings-light.png");
+                using (var fRules = new RulesForm(config)) RenderFormSample(fRules, "form-rules-light.png");
+                using (var fWinInfo = new WindowInfoForm(config, () => { })) RenderFormSample(fWinInfo, "form-windowinfo-light.png");
+
+                UiTheme.Apply(true);
+                using (var fAbout = new AboutForm()) RenderFormSample(fAbout, "form-about-dark.png");
+                using (var fSettings = new SettingsForm(config)) RenderFormSample(fSettings, "form-settings-dark.png");
+                using (var fRules = new RulesForm(config)) RenderFormSample(fRules, "form-rules-dark.png");
+                using (var fWinInfo = new WindowInfoForm(config, () => { })) RenderFormSample(fWinInfo, "form-windowinfo-dark.png");
             }
             catch (Exception ex)
             {

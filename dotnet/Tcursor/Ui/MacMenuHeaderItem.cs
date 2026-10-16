@@ -20,7 +20,7 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
     public MacMenuHeaderItem()
     {
         AutoSize = false;
-        Size = new Size(268, 58);
+        Size = new Size(280, 64);
         ToolTipText = "点击打开光标符号设置…";
         _versionText = $"v{AppInfo.Version}";
     }
@@ -51,8 +51,8 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        int w = Owner is not null ? UiTheme.Dpi(Owner, 268) : 268;
-        int h = Owner is not null ? UiTheme.Dpi(Owner, 58) : 58;
+        int w = Owner is not null ? UiTheme.Dpi(Owner, 280) : 280;
+        int h = Owner is not null ? UiTheme.Dpi(Owner, 64) : 64;
         return new Size(w, h);
     }
 
@@ -109,13 +109,13 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             }
         }
 
-        // Tcursor 品牌名（Bold 700 微软雅黑，基准字阶）
+        // Tcursor 品牌名
         float titleX = iconRect.Right + 8f * s;
-        TextRenderer.DrawText(g, "Tcursor", UiTheme.FontMenuBold,
-            new Point((int)Math.Round(titleX), (int)Math.Round(line1Y)),
+        TextRenderer.DrawText(g, "Tcursor", UiTheme.FontMenuHeader,
+            new Point((int)Math.Round(titleX), (int)Math.Round(line1Y - 1f * s)),
             UiTheme.Current.Text, TextFormatFlags.NoPadding);
 
-        // 精细磨砂半透明版本徽标胶囊（对标 SwitchTask #menuHeaderVersion）
+        // 精细磨砂半透明版本徽标胶囊
         Size verTextSize = TextRenderer.MeasureText(_versionText, UiTheme.FontCaption);
         float verBadgeW = verTextSize.Width + 10f * s;
         float verBadgeH = Math.Max(16f, 18f * s);
@@ -132,10 +132,10 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
         TextRenderer.DrawText(g, _versionText, UiTheme.FontCaption, verTextRect, UiTheme.Current.Dim,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
-        // 第二行：状态呼吸圆点 + 实时状态（粗体 700 + 绿/橙呼吸圆点）
-        float line2Y = cardRect.Y + 31f * s;
+        // 第二行：状态呼吸圆点 + 实时状态
+        float line2Y = cardRect.Y + 34f * s;
         Color dotColor = _paused ? UiTheme.Current.TrafficYellow : UiTheme.Current.TrafficGreen;
-        float dotDiameter = Math.Max(6f, 6.5f * s);
+        float dotDiameter = Math.Max(6f, 7f * s);
         float dotX = iconX + 1.5f * s;
         float dotY = line2Y + 4f * s;
 
@@ -151,9 +151,9 @@ internal sealed class MacMenuHeaderItem : ToolStripMenuItem
             (int)Math.Round(statusX),
             (int)Math.Round(line2Y),
             Math.Max(0, (int)Math.Round(cardRect.Right - statusX - 8f * s)),
-            (int)Math.Round(18f * s));
+            (int)Math.Round(20f * s));
 
-        TextRenderer.DrawText(g, statusText, UiTheme.FontMenuBold,
+        TextRenderer.DrawText(g, statusText, UiTheme.Font,
             statusRect,
             UiTheme.Current.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);

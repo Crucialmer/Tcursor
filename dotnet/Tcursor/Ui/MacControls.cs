@@ -103,38 +103,56 @@ internal sealed class MacButton : Button
         Color borderColor = UiTheme.ControlBorder;
         if (!Enabled)
             fill = Accent ? UiTheme.AccentDisabled : UiTheme.ButtonDisabledFace;
-        else if (_swatch.HasValue)
-        {
-            fill = _down ? ControlPaint.Dark(_swatch.Value, 0.06f) : _hover ? ControlPaint.Light(_swatch.Value, 0.14f) : _swatch.Value;
-            borderColor = Color.FromArgb(60, 0, 0, 0);
-        }
         else if (Accent)
             fill = _down ? UiTheme.AccentDown : _hover ? UiTheme.AccentHover : UiTheme.Accent;
         else
             fill = _down ? UiTheme.ButtonDown : _hover ? UiTheme.ButtonHover : UiTheme.ButtonFace;
 
-        using (var path = MacDraw.RoundedPath(rect, _swatch.HasValue ? UiTheme.DpiF(this, 6f) : UiTheme.DpiF(this, 8f)))
+        using (var path = MacDraw.RoundedPath(rect, UiTheme.DpiF(this, 8f)))
         using (var brush = new SolidBrush(fill))
         {
             g.FillPath(brush, path);
-            if (!Accent || _swatch.HasValue)
+            if (!Accent)
             {
                 using var pen = new Pen(borderColor, penW);
                 g.DrawPath(pen, path);
             }
         }
 
-        Color textColor = !Enabled
-            ? UiTheme.Dim
-            : Accent && !_swatch.HasValue
-                ? Color.White
-                : _swatch.HasValue && _swatch.Value.GetBrightness() < 0.62f
+        // 取色器模式：左侧精致颜色徽标圆点，右侧十六进制文本（随系统深浅色自适应）
+        if (_swatch.HasValue)
+        {
+            float s = UiTheme.DpiScale(this);
+            float dotD = Math.Max(12f, 15f * s);
+            float dotX = rect.X + 8f * s;
+            float dotY = rect.Y + (rect.Height - dotD) / 2f;
+            var dotRect = new RectangleF(dotX, dotY, dotD, dotD);
+            using (var dotPath = new GraphicsPath())
+            {
+                dotPath.AddEllipse(dotRect);
+                using var dotBrush = new SolidBrush(_swatch.Value);
+                g.FillPath(dotBrush, dotPath);
+                using var dotPen = new Pen(Color.FromArgb(60, 0, 0, 0), Math.Max(1f, 1f * s));
+                g.DrawPath(dotPen, dotPath);
+            }
+
+            int textLeft = (int)Math.Round(dotX + dotD + 7f * s);
+            var textRect = new Rectangle(textLeft, (int)rect.Y, (int)(rect.Width - (textLeft - rect.X) - 6 * s), (int)rect.Height);
+            TextRenderer.DrawText(g, Text, Font, textRect, Enabled ? UiTheme.Text : UiTheme.Dim,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+        }
+        else
+        {
+            Color textColor = !Enabled
+                ? UiTheme.Dim
+                : Accent
                     ? Color.White
                     : UiTheme.Text;
-        TextRenderer.DrawText(g, Text, Font, ClientRectangle, textColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, Text, Font, ClientRectangle, textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+        }
 
-        // 键盘焦点环（内描边；只在键盘导航时出现）。主按钮/色块按钮上取白色，其余取强调色。
+        // 键盘焦点环（内描边；只在键盘导航时出现）。主按钮上取白色，其余取强调色。
         if (Focused && ShowFocusCues)
         {
             float ringW = Math.Max(1.5f, UiTheme.DpiF(this, 1.8f));
@@ -142,7 +160,7 @@ internal sealed class MacButton : Button
             if (inner.Width > 2 && inner.Height > 2)
             {
                 using var ringPath = MacDraw.RoundedPath(inner, Math.Max(2f, UiTheme.DpiF(this, 8f) - ringW));
-                using var ringPen = new Pen(Accent || _swatch.HasValue ? Color.FromArgb(235, 255, 255, 255) : UiTheme.Accent, ringW);
+                using var ringPen = new Pen(Accent ? Color.FromArgb(235, 255, 255, 255) : UiTheme.Accent, ringW);
                 g.DrawPath(ringPen, ringPath);
             }
         }
@@ -523,7 +541,7 @@ internal sealed class MacSlider : Control
     }
 }
 
-/// <summary>macOS 风格卡片容器（圆角白底 + 细边框 + 可选标题；随主题深浅色）</summary>
+/// <summary>macOS 风格卡片容器（圆角白底 + 细边框 + 可选标题；随主题深浅色，完美适配 8K 缩放）</summary>
 internal sealed class MacCard : Panel
 {
     public string? Title { get; }
@@ -534,7 +552,21 @@ internal sealed class MacCard : Panel
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         BackColor = UiTheme.WindowBg;
         Font = UiTheme.Font;
-        Padding = title is null ? new Padding(14, 14, 14, 14) : new Padding(14, 34, 14, 12);
+        UpdateCardPadding();
+    }
+
+    private void UpdateCardPadding()
+    {
+        Padding = Title is null
+            ? new Padding(UiTheme.Dpi(this, 16))
+            : new Padding(UiTheme.Dpi(this, 16), UiTheme.Dpi(this, 42), UiTheme.Dpi(this, 16), UiTheme.Dpi(this, 14));
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        UpdateCardPadding();
+        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -545,7 +577,7 @@ internal sealed class MacCard : Panel
 
         float penW = Math.Max(1f, UiTheme.DpiF(this, 1f));
         var rect = new RectangleF(penW / 2f, penW / 2f, Width - penW, Height - penW);
-        using (var path = MacDraw.RoundedPath(rect, UiTheme.DpiF(this, 10f)))
+        using (var path = MacDraw.RoundedPath(rect, UiTheme.DpiF(this, 12f)))
         {
             using var fill = new SolidBrush(UiTheme.CardBg);
             g.FillPath(fill, path);
@@ -555,11 +587,164 @@ internal sealed class MacCard : Panel
 
         if (!string.IsNullOrEmpty(Title))
         {
-            TextRenderer.DrawText(g, Title, UiTheme.FontSectionTitle,
-                new Point(UiTheme.Dpi(this, 15), UiTheme.Dpi(this, 10)), UiTheme.SectionTitle, TextFormatFlags.NoPadding);
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            using var brush = new SolidBrush(UiTheme.SectionTitle);
+            using var sf = new StringFormat
+            {
+                Alignment = StringAlignment.Near,
+                LineAlignment = StringAlignment.Near,
+                FormatFlags = StringFormatFlags.NoWrap
+            };
+            g.DrawString(Title, UiTheme.FontSectionTitle, brush,
+                new PointF(UiTheme.Dpi(this, 16), UiTheme.Dpi(this, 12)), sf);
+        }
+    }
+}
+
+/// <summary>macOS 26 风格药丸分段选择器（极光胶囊切换卡，随主题自适应与 8K 矢量渲染）</summary>
+internal sealed class MacSegmentedControl : Control
+{
+    private string[] _items;
+    private int _selectedIndex;
+    private int _hoverIndex = -1;
+
+    public event EventHandler? SelectedIndexChanged;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int SelectedIndex
+    {
+        get => _selectedIndex;
+        set
+        {
+            if (value >= 0 && value < _items.Length && value != _selectedIndex)
+            {
+                _selectedIndex = value;
+                SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+                Invalidate();
+            }
         }
     }
 
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string[] Items
+    {
+        get => _items;
+        set
+        {
+            _items = value ?? Array.Empty<string>();
+            _selectedIndex = Math.Clamp(_selectedIndex, 0, Math.Max(0, _items.Length - 1));
+            Invalidate();
+        }
+    }
+
+    public MacSegmentedControl(params string[] items)
+    {
+        _items = items;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Height = 36;
+        BackColor = UiTheme.WindowBg;
+        Font = UiTheme.Font;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        MacDraw.FillSurface(g, this);
+
+        if (_items.Length == 0)
+            return;
+
+        float s = UiTheme.DpiScale(this);
+        float pad = 3f * s;
+        float h = Height - pad * 2f;
+        float totalW = Width - pad * 2f;
+        float segW = totalW / _items.Length;
+        float radius = Math.Max(4f, 8f * s);
+
+        // 背景胶囊槽
+        var trackRect = new RectangleF(pad, pad, totalW, h);
+        using (var trackPath = MacDraw.RoundedPath(trackRect, radius + 2f * s))
+        using (var trackBrush = new SolidBrush(UiTheme.Current.SubCardBg))
+        using (var trackPen = new Pen(UiTheme.Current.CardBorder, Math.Max(1f, 1f * s)))
+        {
+            g.FillPath(trackBrush, trackPath);
+            g.DrawPath(trackPen, trackPath);
+        }
+
+        // 选中的药丸胶囊
+        float selX = pad + _selectedIndex * segW + 2f * s;
+        float selY = pad + 2f * s;
+        float selW = segW - 4f * s;
+        float selH = h - 4f * s;
+        var selRect = new RectangleF(selX, selY, selW, selH);
+        using (var selPath = MacDraw.RoundedPath(selRect, radius))
+        {
+            Color selBg = UiTheme.IsDark ? Color.FromArgb(0x36, 0x36, 0x3E) : Color.White;
+            using var selBrush = new SolidBrush(selBg);
+            g.FillPath(selBrush, selPath);
+
+            using var selPen = new Pen(UiTheme.Current.CardBorder, 1f);
+            g.DrawPath(selPen, selPath);
+        }
+
+        // 文本绘制
+        for (int i = 0; i < _items.Length; i++)
+        {
+            float x = pad + i * segW;
+            var textRect = new Rectangle((int)Math.Round(x), (int)Math.Round(pad), (int)Math.Round(segW), (int)Math.Round(h));
+            bool isSel = i == _selectedIndex;
+            bool isHover = i == _hoverIndex && !isSel;
+            Color textColor = isSel ? UiTheme.Current.Text : (isHover ? UiTheme.Current.Text : UiTheme.Current.Dim);
+            Font f = isSel ? UiTheme.FontBold : UiTheme.Font;
+
+            TextRenderer.DrawText(g, _items[i], f, textRect, textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Left && _items.Length > 0)
+        {
+            float s = UiTheme.DpiScale(this);
+            float pad = 3f * s;
+            float segW = (Width - pad * 2f) / _items.Length;
+            int idx = (int)((e.X - pad) / segW);
+            if (idx >= 0 && idx < _items.Length)
+                SelectedIndex = idx;
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (_items.Length > 0)
+        {
+            float s = UiTheme.DpiScale(this);
+            float pad = 3f * s;
+            float segW = (Width - pad * 2f) / _items.Length;
+            int idx = (int)((e.X - pad) / segW);
+            if (idx != _hoverIndex && idx >= 0 && idx < _items.Length)
+            {
+                _hoverIndex = idx;
+                Invalidate();
+            }
+        }
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverIndex != -1)
+        {
+            _hoverIndex = -1;
+            Invalidate();
+        }
+    }
 }
 
 /// <summary>macOS 风格文本输入框：圆角细边框 + 内嵌真实文本框（选择/复制/输入法/剪贴板全部继承系统行为）。

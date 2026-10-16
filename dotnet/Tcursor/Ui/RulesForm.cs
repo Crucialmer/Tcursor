@@ -2,32 +2,32 @@ using Tcursor.Config;
 
 namespace Tcursor.Ui;
 
-/// <summary>白名单规则管理窗体（命中任一启用规则才显示符号；列表顺序即匹配顺序）</summary>
+/// <summary>白名单规则管理窗体（命中任一启用规则才显示符号；列表顺序即匹配顺序；完美支持 8K 与高 DPI 缩放）</summary>
 internal sealed class RulesForm : MacDialogForm
 {
-    /// <summary>列宽（96 DPI 设计基线；合计 630px —— 列表包卡片后可用内宽约 646px，留余量避免出现横向滚动条）</summary>
     private static readonly (string Title, int Width)[] Columns =
     {
-        ("启用", 40), ("名称", 86), ("进程正则", 138), ("标题正则", 110), ("类名正则", 98), ("捕获链", 88), ("追加偏移", 70),
+        ("启用", 50), ("规则名称", 110), ("进程正则", 150), ("标题正则", 120), ("类名正则", 110), ("捕获链", 96), ("追加偏移", 80),
     };
 
     private readonly AppConfig _config;
     private readonly List<RuleConfig> _rules;
     private readonly ListView _list = new();
+    private readonly ImageList _rowHeightSpacer = new();
 
     public RulesForm(AppConfig config)
     {
-        SuspendLayout();   // 设计器惯例：构造期间挂起布局，末段 ResumeLayout+PerformLayout 时统一触发 AutoScale 落地
+        SuspendLayout();
         _config = config;
         _rules = config.Rules.Select(Clone).ToList();
 
         Text = "白名单规则 - Tcursor";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(820, 440 + MacDialogForm.HeaderDesignPx);   // 96 DPI 设计基线（含 macOS 标题区）
+        ClientSize = new Size(880, 480 + MacDialogForm.HeaderDesignPx);
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F);   // 设计基线 96 DPI：缺失该值会使 AutoScaleFactor 恒为 1、高 DPI 完全不缩放
+        AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
         MaximizeBox = false;
 
@@ -35,21 +35,18 @@ internal sealed class RulesForm : MacDialogForm
         _list.FullRowSelect = true;
         _list.CheckBoxes = true;
         _list.Dock = DockStyle.Fill;
-        _list.BorderStyle = BorderStyle.None;   // 卡片已提供边界，去掉列表自带边框
+        _list.BorderStyle = BorderStyle.None;
         _list.BackColor = UiTheme.CardBg;
-        // 整表自绘：复选框列用 macOS 复选框（原生复选框在深色主题下会画出亮白方块），
-        // 文字列沿用主题色；表头采用扁平无边框设计与卡片融为一体。
         _list.OwnerDraw = true;
+
         _list.DrawColumnHeader += (_, e) =>
         {
             Graphics g = e.Graphics;
             Rectangle bounds = e.Bounds;
 
-            // macOS 极简扁平表头：与卡片背景融合，去掉 Windows 原生 3D 凸起边缘
             using (var brush = new SolidBrush(UiTheme.CardBg))
                 g.FillRectangle(brush, bounds);
 
-            // 底部 1px 细分割线
             using (var linePen = new Pen(UiTheme.CardBorder, 1f))
                 g.DrawLine(linePen, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
 
@@ -58,13 +55,14 @@ internal sealed class RulesForm : MacDialogForm
 
             float s = UiTheme.DpiScale(_list);
             var textRect = new Rectangle(
-                bounds.X + (int)Math.Round(3f * s), bounds.Y,
-                Math.Max(0, bounds.Width - (int)Math.Round(6f * s)), bounds.Height);
+                bounds.X + (int)Math.Round(4f * s), bounds.Y,
+                Math.Max(0, bounds.Width - (int)Math.Round(8f * s)), bounds.Height);
 
             TextRenderer.DrawText(g, e.Header.Text, UiTheme.FontCaptionBold, textRect, UiTheme.Dim,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
                 TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         };
+
         _list.DrawItem += (_, e) =>
         {
             if (e.Item is null)
@@ -72,6 +70,7 @@ internal sealed class RulesForm : MacDialogForm
             else
                 DrawRow(e.Graphics, e.Item, e.Bounds);
         };
+
         _list.DrawSubItem += (_, e) =>
         {
             if (e.Item is null)
@@ -79,12 +78,11 @@ internal sealed class RulesForm : MacDialogForm
             else
                 DrawCell(e.Graphics, e.Item, e.ColumnIndex, e.Bounds);
         };
+
         foreach (var (title, width) in Columns)
-            _list.Columns.Add(title, width);   // 实际宽度按 DPI 由 ApplyDpiMetrics 覆盖
+            _list.Columns.Add(title, width);
+
         _list.DoubleClick += (_, _) => EditSelected();
-        // 勾选即回写模型：避免后续列表操作（增删/移动/编辑）重建列表时丢失未保存的勾选。
-        // 只同步「触发事件的那一项」——窗体首次显示时 WinForms 会对每个已勾选项触发本事件，
-        // 而此刻 Items 集合尾部尚未填充（全量枚举会产出 null 元素 → NullReferenceException）。
         _list.ItemChecked += (_, e) => SyncChecked(e.Item);
 
         var side = new FlowLayoutPanel
@@ -92,7 +90,8 @@ internal sealed class RulesForm : MacDialogForm
             FlowDirection = FlowDirection.TopDown,
             AutoSize = true,
             Dock = DockStyle.Fill,
-            Padding = new Padding(6),
+            Padding = new Padding(8, 4, 0, 4),
+            BackColor = UiTheme.WindowBg,
         };
         side.Controls.Add(MakeButton("添加…", (_, _) => AddRule()));
         side.Controls.Add(MakeButton("编辑…", (_, _) => EditSelected()));
@@ -104,24 +103,24 @@ internal sealed class RulesForm : MacDialogForm
         {
             AutoSize = true,
             Font = UiTheme.FontCaption,
-            MaximumSize = new Size(780, 0),   // 值随 DPI 由框架缩放
+            MaximumSize = new Size(840, 0),
             ForeColor = UiTheme.Dim,
-            Margin = new Padding(0, 0, 0, 2),
-            Padding = new Padding(0, 6, 0, 6),
-            Text = "命中任一启用规则才会显示光标符号（白名单机制）；列表自上而下按顺序匹配。" + Environment.NewLine +
-                   "提示：托盘菜单「窗口信息」可实时查看前台窗口的进程，并一键添加为规则。",
+            Margin = new Padding(0, 0, 0, 8),
+            Text = "白名单机制：命中任一启用规则才会显示光标符号，按自上而下顺序依次匹配。" + Environment.NewLine +
+                   "提示：可在托盘菜单打开「窗口信息」实时查看当前前台窗口并一键添加入规则库。",
         };
 
         var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 44,
-            Padding = new Padding(8),
+            Height = 48,
+            Padding = new Padding(8, 8, 0, 8),
             Dock = DockStyle.Fill,
+            BackColor = UiTheme.WindowBg,
         };
-        var ok = UiTheme.Button("确定", accent: true, width: 96);
+        var ok = UiTheme.Button("确定", accent: true, width: 104);
         ok.DialogResult = DialogResult.OK;
-        var cancel = UiTheme.Button("取消", width: 96);
+        var cancel = UiTheme.Button("取消", width: 104);
         cancel.DialogResult = DialogResult.Cancel;
         ok.Click += (_, _) =>
         {
@@ -133,14 +132,14 @@ internal sealed class RulesForm : MacDialogForm
         AcceptButton = ok;
         CancelButton = cancel;
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(14, 6, 14, 10) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16, 12, 16, 12), BackColor = UiTheme.WindowBg };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        // 列表包一层卡片：与设置窗口的卡片式观感统一（此前列表直接落在窗口底色上）
-        var listCard = new MacCard { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(10) };
+
+        var listCard = new MacCard { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(6) };
         listCard.Controls.Add(_list);
         root.Controls.Add(hint, 0, 0);
         root.SetColumnSpan(hint, 2);
@@ -152,34 +151,42 @@ internal sealed class RulesForm : MacDialogForm
 
         ReloadList();
 
+        Load += (_, _) =>
+        {
+            UpdateRowHeight();
+            ApplyDpiMetrics();
+        };
+
         ResumeLayout(false);
-        PerformLayout();   // 此时子树已齐备，AutoScale 按（当前 DPI / 96）整体缩放
+        PerformLayout();
         ApplyDpiMetrics();
     }
 
-    /// <summary>AutoScale 不覆盖的像素级度量（ListView 列宽）：按当前 DPI 应用。</summary>
+    private void UpdateRowHeight()
+    {
+        int rowH = Math.Max(26, UiTheme.Dpi(_list, 28));
+        _rowHeightSpacer.ImageSize = new Size(1, rowH);
+        _list.SmallImageList = _rowHeightSpacer;
+    }
+
     private void ApplyDpiMetrics()
     {
         for (int i = 0; i < Columns.Length && i < _list.Columns.Count; i++)
             _list.Columns[i].Width = UiTheme.Dpi(_list, Columns[i].Width);
     }
 
-    protected override void OnLoad(EventArgs e)
-    {
-        base.OnLoad(e);
-        ApplyDpiMetrics();   // 句柄创建后 DeviceDpi 为最终值
-    }
-
     protected override void OnDpiChangedAfterParent(EventArgs e)
     {
         base.OnDpiChangedAfterParent(e);
+        UpdateRowHeight();
         ApplyDpiMetrics();
+        Invalidate(true);
     }
 
     private static Button MakeButton(string text, EventHandler onClick)
     {
-        var button = UiTheme.Button(text, width: 100);
-        button.Margin = new Padding(3);
+        var button = UiTheme.Button(text, width: 104);
+        button.Margin = new Padding(0, 0, 0, 8);
         button.Click += onClick;
         return button;
     }
@@ -190,13 +197,20 @@ internal sealed class RulesForm : MacDialogForm
         _list.Items.Clear();
         foreach (RuleConfig rule in _rules)
         {
-            var item = new ListViewItem("") { Checked = rule.Enabled, Tag = rule };
-            item.SubItems.Add(rule.Name);
-            item.SubItems.Add(rule.Process);
-            item.SubItems.Add(rule.Title);
-            item.SubItems.Add(rule.Class);
-            item.SubItems.Add(rule.CaptureChain);
-            item.SubItems.Add($"{rule.OffsetX},{rule.OffsetY}");
+            var item = new ListViewItem(new[]
+            {
+                "",
+                rule.Name,
+                rule.Process,
+                rule.Title,
+                rule.Class,
+                rule.CaptureChain,
+                rule.OffsetX != 0 || rule.OffsetY != 0 ? $"{rule.OffsetX},{rule.OffsetY}" : "",
+            })
+            {
+                Checked = rule.Enabled,
+                Tag = rule,
+            };
             _list.Items.Add(item);
         }
         _list.EndUpdate();
@@ -266,7 +280,6 @@ internal sealed class RulesForm : MacDialogForm
             rule.Enabled = item.Checked;
     }
 
-    /// <summary>提交前的兜底全量回写（空元素防御：集合构建期可能短暂产出 null 元素）。</summary>
     private void SyncAllChecked()
     {
         foreach (ListViewItem? item in _list.Items)
@@ -276,7 +289,6 @@ internal sealed class RulesForm : MacDialogForm
         }
     }
 
-    /// <summary>整行自绘（DrawItem 路径）：背景 + 各列内容；列边界按各列宽度推算。</summary>
     private void DrawRow(Graphics g, ListViewItem item, Rectangle rowBounds)
     {
         bool selected = item.Selected;
@@ -293,7 +305,6 @@ internal sealed class RulesForm : MacDialogForm
         }
     }
 
-    /// <summary>单元格自绘（DrawSubItem 路径）；与 DrawRow 幂等，两条事件路径都覆盖。</summary>
     private void DrawCell(Graphics g, ListViewItem item, int column, Rectangle cellBounds)
     {
         bool selected = item.Selected;
@@ -304,8 +315,8 @@ internal sealed class RulesForm : MacDialogForm
         float s = UiTheme.DpiScale(_list);
         if (column == 0)
         {
-            float box = 15f * s;
-            var rect = new RectangleF(cellBounds.X + 11f * s, cellBounds.Y + (cellBounds.Height - box) / 2f, box, box);
+            float box = 16f * s;
+            var rect = new RectangleF(cellBounds.X + (cellBounds.Width - box) / 2f, cellBounds.Y + (cellBounds.Height - box) / 2f, box, box);
             MacDraw.DrawCheckBox(g, rect, item.Checked, _list.Enabled, surface);
             return;
         }
@@ -314,8 +325,8 @@ internal sealed class RulesForm : MacDialogForm
         if (text.Length == 0)
             return;
         var bounds = new Rectangle(
-            cellBounds.X + (int)Math.Round(2f * s), cellBounds.Y,
-            Math.Max(0, cellBounds.Width - (int)Math.Round(4f * s)), cellBounds.Height);
+            cellBounds.X + (int)Math.Round(4f * s), cellBounds.Y,
+            Math.Max(0, cellBounds.Width - (int)Math.Round(8f * s)), cellBounds.Height);
         Font cellFont = (column >= 2 && column <= 5) ? UiTheme.FontMono : _list.Font;
         TextRenderer.DrawText(g, text, cellFont, bounds, selected ? Color.White : UiTheme.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
@@ -335,35 +346,36 @@ internal sealed class RulesForm : MacDialogForm
     };
 }
 
-/// <summary>单条规则编辑对话框</summary>
+/// <summary>单条规则编辑对话框（macOS 26 风格卡片布局）</summary>
 internal sealed class RuleEditForm : MacDialogForm
 {
     public RuleConfig? Result { get; private set; }
 
-    private readonly MacField _name = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };   // Dock=Fill：TLP 单元格内 AutoSize 控件会被压到不可见宽度，须由单元格约束
-    private readonly MacField _process = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
-    private readonly MacField _title = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
-    private readonly MacField _class = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
-    private readonly MacField _chain = new() { Dock = DockStyle.Fill, BackColor = UiTheme.WindowBg };
-    private readonly MacNumberField _offsetX = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.WindowBg };
-    private readonly MacNumberField _offsetY = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.WindowBg };
-    private readonly MacCheck _enabled = new() { Text = "启用", BackColor = UiTheme.WindowBg };
+    private readonly MacField _name = new() { Dock = DockStyle.Fill, BackColor = UiTheme.CardBg };
+    private readonly MacField _process = new() { Dock = DockStyle.Fill, BackColor = UiTheme.CardBg };
+    private readonly MacField _title = new() { Dock = DockStyle.Fill, BackColor = UiTheme.CardBg };
+    private readonly MacField _class = new() { Dock = DockStyle.Fill, BackColor = UiTheme.CardBg };
+    private readonly MacField _chain = new() { Dock = DockStyle.Fill, BackColor = UiTheme.CardBg };
+    private readonly MacNumberField _offsetX = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.CardBg };
+    private readonly MacNumberField _offsetY = new() { Minimum = -500, Maximum = 500, Width = 90, BackColor = UiTheme.CardBg };
+    private readonly MacCheck _enabled = new() { Text = "启用此规则", BackColor = UiTheme.CardBg };
 
     public RuleEditForm(RuleConfig source)
     {
-        SuspendLayout();   // 设计器惯例：同 SettingsForm，末段 ResumeLayout+PerformLayout 触发 AutoScale
-        Text = "编辑规则 - Tcursor";
+        SuspendLayout();
+        Text = "编辑白名单规则 - Tcursor";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(500, 340 + MacDialogForm.HeaderDesignPx);   // 96 DPI 设计基线（含 macOS 标题区）
+        ClientSize = new Size(540, 380 + MacDialogForm.HeaderDesignPx);
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F);   // 设计基线 96 DPI（缺失则不缩放）
+        AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
         MaximizeBox = false;
 
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(12) };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var card = new MacCard("规则属性") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = UiTheme.CardBg };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         int row = 0;
@@ -371,7 +383,7 @@ internal sealed class RuleEditForm : MacDialogForm
         {
             table.RowCount = row + 1;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            table.Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = UiTheme.Text, Margin = new Padding(3, 8, 3, 3) }, 0, row);
+            table.Controls.Add(new Label { Text = label, AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, row);
             table.Controls.Add(control, 1, row);
             row++;
         }
@@ -381,73 +393,75 @@ internal sealed class RuleEditForm : MacDialogForm
         _class.Inner.Font = UiTheme.FontMono;
         _chain.Inner.Font = UiTheme.FontMono;
 
-        AddRow("名称", _name);
-        AddRow("进程正则（匹配进程名，可不带 .exe）", _process);
-        AddRow("标题正则（可选）", _title);
-        AddRow("类名正则（可选）", _class);
-        AddRow("捕获链（可选，如 GUI>UIA>MSAA>TSF）", _chain);
-        AddRow("追加偏移 X / Y", new FlowLayoutPanel { AutoSize = true, WrapContents = false, Controls = { _offsetX, _offsetY } });
-        AddRow("", _enabled); // 左侧标签留空：复选框自带「启用」文字，避免重复
-
         _name.Text = source.Name;
         _process.Text = source.Process;
         _title.Text = source.Title;
         _class.Text = source.Class;
         _chain.Text = source.CaptureChain;
+        _offsetX.Value = source.OffsetX;
+        _offsetY.Value = source.OffsetY;
         _enabled.Checked = source.Enabled;
-        _offsetX.Value = Math.Clamp(source.OffsetX, -500, 500);
-        _offsetY.Value = Math.Clamp(source.OffsetY, -500, 500);
+
+        AddRow("规则名称", _name);
+        AddRow("进程正则", _process);
+        AddRow("标题正则", _title);
+        AddRow("类名正则", _class);
+        AddRow("捕获链", _chain);
+
+        var offsetFlow = new FlowLayoutPanel { AutoSize = true, BackColor = UiTheme.CardBg, Margin = new Padding(0) };
+        offsetFlow.Controls.Add(new Label { Text = "X:", AutoSize = true, Margin = new Padding(0, 6, 4, 0), ForeColor = UiTheme.Dim });
+        offsetFlow.Controls.Add(_offsetX);
+        offsetFlow.Controls.Add(new Label { Text = "Y:", AutoSize = true, Margin = new Padding(12, 6, 4, 0), ForeColor = UiTheme.Dim });
+        offsetFlow.Controls.Add(_offsetY);
+        AddRow("追加偏移", offsetFlow);
+        AddRow("启用状态", _enabled);
+        card.Controls.Add(table);
 
         var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
             Height = 44,
-            Padding = new Padding(8),
             Dock = DockStyle.Fill,
+            BackColor = UiTheme.WindowBg,
         };
-        var ok = UiTheme.Button("确定", accent: true, width: 96);
-        var cancel = UiTheme.Button("取消", width: 96);
+        var ok = UiTheme.Button("确定", accent: true, width: 100);
+        ok.Click += (_, _) =>
+        {
+            Result = new RuleConfig
+            {
+                Name = _name.Text.Trim(),
+                Process = _process.Text.Trim(),
+                Title = _title.Text.Trim(),
+                Class = _class.Text.Trim(),
+                CaptureChain = _chain.Text.Trim(),
+                OffsetX = (int)_offsetX.Value,
+                OffsetY = (int)_offsetY.Value,
+                Enabled = _enabled.Checked,
+            };
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+        var cancel = UiTheme.Button("取消", width: 100);
         cancel.DialogResult = DialogResult.Cancel;
-        ok.Click += (_, _) => Confirm();
         buttons.Controls.Add(ok);
         buttons.Controls.Add(cancel);
         AcceptButton = ok;
         CancelButton = cancel;
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));   // 显式填充列，避免缺省 AutoSize 列被内容撑宽
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(16, 12, 16, 14), BackColor = UiTheme.WindowBg };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.Controls.Add(table, 0, 0);
+        root.Controls.Add(card, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
 
+        Load += (_, _) =>
+        {
+            table.ColumnStyles[0].Width = UiTheme.Dpi(this, 100);
+        };
+
         ResumeLayout(false);
         PerformLayout();
-    }
-
-    private void Confirm()
-    {
-        if (string.IsNullOrWhiteSpace(_process.Text) &&
-            string.IsNullOrWhiteSpace(_title.Text) &&
-            string.IsNullOrWhiteSpace(_class.Text))
-        {
-            MacDialog.Alert(this, "进程 / 标题 / 类名 至少填写一项。");
-            return;
-        }
-
-        Result = new RuleConfig
-        {
-            Name = _name.Text.Trim(),
-            Process = _process.Text.Trim(),
-            Title = _title.Text.Trim(),
-            Class = _class.Text.Trim(),
-            CaptureChain = _chain.Text.Trim(),
-            Enabled = _enabled.Checked,
-            OffsetX = (int)_offsetX.Value,
-            OffsetY = (int)_offsetY.Value,
-        };
-        DialogResult = DialogResult.OK;
-        Close();
     }
 }

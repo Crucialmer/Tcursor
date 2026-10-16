@@ -9,8 +9,8 @@ namespace Tcursor.Ui;
 /// </summary>
 internal class MacDialogForm : Form
 {
-    /// <summary>标题区高度（96 DPI 设计基线像素）</summary>
-    public const int HeaderDesignPx = 36;
+    /// <summary>标题区高度（96 DPI 设计基线像素，macOS 26 舒适黄金比例）</summary>
+    public const int HeaderDesignPx = 42;
 
     /// <summary>把窗口摆到工作区右下角（托盘区附近）——托盘小工具的「提示 / 信息」类窗口统一落点。
     /// 需在窗口最终尺寸确定后调用（OnLoad 及以后）。</summary>
@@ -23,18 +23,25 @@ internal class MacDialogForm : Form
             Math.Max(area.Top, area.Bottom - form.Height - margin));
     }
 
-    private bool _redHover;
+    private bool _trafficHover;
     private bool _redDown;
 
     public MacDialogForm()
     {
         FormBorderStyle = FormBorderStyle.None;
         DoubleBuffered = true;
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-        Padding = new Padding(0, HeaderDesignPx, 0, 0);   // 标题区占位（随 DPI 由框架缩放）
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+        UpdateHeaderPadding();
     }
 
-    private float HeaderHeight => UiTheme.Dpi(this, HeaderDesignPx);
+    public float HeaderHeight => UiTheme.Dpi(this, HeaderDesignPx);
+
+    private void UpdateHeaderPadding()
+    {
+        int hh = (int)HeaderHeight;
+        if (Padding.Top != hh)
+            Padding = new Padding(0, hh, 0, 0);
+    }
 
     private RectangleF RedDotRect()
     {
@@ -49,13 +56,21 @@ internal class MacDialogForm : Form
         float d = 12f * s;
         float gap = 8f * s;
         float totalW = d * 3f + gap * 2f;
-        return new RectangleF(16f * s - 3f * s, HeaderHeight / 2f - d / 2f - 3f * s, totalW + 6f * s, d + 6f * s);
+        return new RectangleF(16f * s - 4f * s, HeaderHeight / 2f - d / 2f - 4f * s, totalW + 8f * s, d + 8f * s);
     }
 
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        UpdateHeaderPadding();
         ApplyDwmAttributes(UiTheme.IsDark);
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        UpdateHeaderPadding();
+        Invalidate();
     }
 
     /// <summary>更新窗口 DWM 属性（圆角 + 亚克力/云母材质 + 沉浸深浅模式同步）</summary>
@@ -69,13 +84,13 @@ internal class MacDialogForm : Form
     {
         try
         {
-            int pref = Win32.NativeMethods.DWMWCP_ROUND;   // Win11 圆角（低版本调用失败即忽略）
+            int pref = Win32.NativeMethods.DWMWCP_ROUND;   // Win11 圆角
             _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_WINDOW_CORNER_RADIUS, ref pref, sizeof(int));
 
             int darkVal = dark ? 1 : 0;
             _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkVal, sizeof(int));
 
-            // Win11 亚克力半透明磨砂材质（DWMSBT_TRANSIENTWINDOW = 3）
+            // Win11 亚克力半透明磨砂材质
             int backdrop = Win32.NativeMethods.DWMSBT_TRANSIENTWINDOW;
             _ = Win32.NativeMethods.DwmSetWindowAttribute(Handle, Win32.NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
         }
@@ -90,7 +105,7 @@ internal class MacDialogForm : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ClassStyle |= 0x20000;   // CS_DROPSHADOW：无边框窗口投影
+            cp.ClassStyle |= 0x20000;   // CS_DROPSHADOW：无边框窗口阴影
             return cp;
         }
     }
@@ -103,51 +118,74 @@ internal class MacDialogForm : Form
         UiPalette p = UiTheme.Current;
         float s = UiTheme.DpiScale(this);
         int hh = (int)HeaderHeight;
-        bool active = ActiveForm == this;
+        bool active = Form.ActiveForm == this;
 
-        // 标题区底部分隔线（macOS 统一标题栏风格）
-        using (var pen = new Pen(p.HeaderLine, Math.Max(1f, s)))
+        // 窗口四周 1px 细微边界（解决深色模式下与纯黑背景贴合无边的问题）
+        using (var borderPen = new Pen(p.CardBorder, 1f))
+            g.DrawRectangle(borderPen, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+
+        // 标题区底部分隔线
+        using (var pen = new Pen(p.HeaderLine, Math.Max(1f, 1f * s)))
             g.DrawLine(pen, 0, hh - 1, ClientSize.Width, hh - 1);
 
-        // 红绿灯（红=关闭；黄/绿当前为固定尺寸对话框，呈禁用态——保留色相、混入窗口底色的暗调，
-        // 只有红灯是活的，与 macOS 对不可用交通灯的处理一致）
+        // 红绿灯（原生 macOS 连续曲率圆 + 0.5px 精细外框环 + 悬停微符文）
         float d = 12f * s;
         float gap = 8f * s;
         float x = 16f * s;
         float cy = hh / 2f;
-        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d), active ? p.TrafficRed : p.TrafficInactive, active && _redHover);
-        x += d + gap;
-        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
-            active ? DimTraffic(p.TrafficYellow, p.WindowBg) : p.TrafficInactive, false);
-        x += d + gap;
-        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
-            active ? DimTraffic(p.TrafficGreen, p.WindowBg) : p.TrafficInactive, false);
 
-        // 居中标题
-        TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, ClientSize.Width, hh),
+        bool showGlyphs = _trafficHover && active;
+        // 红灯 (关闭)
+        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
+            active ? p.TrafficRed : p.TrafficInactive,
+            active ? p.TrafficRedBorder : p.TrafficInactive,
+            showGlyphs ? "×" : null);
+
+        x += d + gap;
+        // 黄灯 (最小化/不可用)
+        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
+            active ? DimTraffic(p.TrafficYellow, p.WindowBg) : p.TrafficInactive,
+            active ? DimTraffic(p.TrafficYellowBorder, p.WindowBg) : p.TrafficInactive,
+            showGlyphs ? "−" : null);
+
+        x += d + gap;
+        // 绿灯 (缩放/全屏)
+        DrawTrafficLight(g, new RectangleF(x, cy - d / 2f, d, d),
+            active ? DimTraffic(p.TrafficGreen, p.WindowBg) : p.TrafficInactive,
+            active ? DimTraffic(p.TrafficGreenBorder, p.WindowBg) : p.TrafficInactive,
+            showGlyphs ? "+" : null);
+
+        // 居中标题（优雅层次，字重与主题匹配）
+        TextRenderer.DrawText(g, Text, UiTheme.FontTitle, new Rectangle(0, 0, ClientSize.Width, hh),
             active ? p.HeaderTitle : p.HeaderTitleInactive,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
     }
 
-    private void DrawTrafficLight(Graphics g, RectangleF rect, Color color, bool showGlyph)
+    private void DrawTrafficLight(Graphics g, RectangleF rect, Color fillColor, Color borderColor, string? glyph)
     {
-        using (var brush = new SolidBrush(color))
+        float s = UiTheme.DpiScale(this);
+        using (var brush = new SolidBrush(fillColor))
             g.FillEllipse(brush, rect);
-        if (!showGlyph)
+
+        using (var pen = new Pen(borderColor, Math.Max(0.5f, 0.6f * s)))
+            g.DrawEllipse(pen, rect);
+
+        if (string.IsNullOrEmpty(glyph))
             return;
-        using var pen = new Pen(UiTheme.Current.TrafficGlyph, Math.Max(1f, 1.2f * UiTheme.DpiScale(this)));
-        float m = rect.Width * 0.32f;
-        g.DrawLine(pen, rect.X + m, rect.Y + m, rect.Right - m, rect.Bottom - m);
-        g.DrawLine(pen, rect.Right - m, rect.Y + m, rect.X + m, rect.Bottom - m);
+
+        using var glyphBrush = new SolidBrush(UiTheme.Current.TrafficGlyph);
+        using var glyphFont = new Font(Font.FontFamily, 7.5f * s, FontStyle.Bold);
+        var r = new Rectangle((int)rect.X, (int)rect.Y - (int)(1f * s), (int)rect.Width, (int)rect.Height);
+        TextRenderer.DrawText(g, glyph, glyphFont, r, UiTheme.Current.TrafficGlyph,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
 
-    /// <summary>把交通灯颜色按 macOS「禁用」观感压暗：保留色相，约向窗口底色混合 45%。</summary>
     private static Color DimTraffic(Color color, Color surface)
         => Color.FromArgb(
             (color.A + surface.A) / 2,
-            (color.R * 55 + surface.R * 45) / 100,
-            (color.G * 55 + surface.G * 45) / 100,
-            (color.B * 55 + surface.B * 45) / 100);
+            (color.R * 65 + surface.R * 35) / 100,
+            (color.G * 65 + surface.G * 35) / 100,
+            (color.B * 65 + surface.B * 35) / 100);
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
@@ -185,9 +223,9 @@ internal class MacDialogForm : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         bool hover = TrafficGroupRect().Contains(e.Location);
-        if (hover != _redHover)
+        if (hover != _trafficHover)
         {
-            _redHover = hover;
+            _trafficHover = hover;
             InvalidateHeader();
         }
         base.OnMouseMove(e);
@@ -195,9 +233,9 @@ internal class MacDialogForm : Form
 
     protected override void OnMouseLeave(EventArgs e)
     {
-        if (_redHover)
+        if (_trafficHover)
         {
-            _redHover = false;
+            _trafficHover = false;
             InvalidateHeader();
         }
         base.OnMouseLeave(e);

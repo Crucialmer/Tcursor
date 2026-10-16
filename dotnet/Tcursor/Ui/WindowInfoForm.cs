@@ -5,8 +5,8 @@ using Tcursor.Core;
 namespace Tcursor.Ui;
 
 /// <summary>
-/// 「窗口信息」面板：实时显示当前选中（前台）窗口的信息，
-/// 并可一键把该窗口的进程添加为白名单规则。
+/// 「窗口信息」面板（macOS 26 仪表盘风格）：实时动态探测前台窗口，
+/// 并提供一键规则录入与属性复制。全矢量高 DPI 适配（最高 8K 显示器）。
 /// </summary>
 internal sealed class WindowInfoForm : MacDialogForm
 {
@@ -18,11 +18,12 @@ internal sealed class WindowInfoForm : MacDialogForm
     private readonly MacField _focusClass = MakeField(mono: true);
     private readonly MacField _title = MakeField(mono: false);
     private readonly MacField _path = MakeField(mono: true);
-    private readonly Label _status = new() { AutoSize = true, Font = UiTheme.FontCaption, ForeColor = UiTheme.Dim, Margin = new Padding(10, 4, 10, 0) };
-    private readonly MacButton _addButton = new(accent: true) { Text = "添加为规则", Width = 110, Height = 32, Enabled = false };
-    private readonly MacButton _copyButton = new() { Text = "拷贝进程名", Width = 104, Height = 32, Enabled = false };   // 无信息时可点却无动作 = 假按钮：与「添加」一致地先禁用
+    private readonly Label _status = new() { AutoSize = true, Font = UiTheme.FontCaptionBold, ForeColor = UiTheme.Dim, Margin = new Padding(6, 6, 6, 0) };
+    private readonly MacButton _addButton = new(accent: true) { Text = "✨ 添加为白名单规则", Width = 150, Height = 34, Enabled = false };
+    private readonly MacButton _copyButton = new() { Text = "拷贝进程名", Width = 110, Height = 34, Enabled = false };
+    private readonly MacButton _copyPathButton = new() { Text = "拷贝路径", Width = 96, Height = 34, Enabled = false };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 120 };
-    private const int PathCacheTtlMs = 3000;   // 进程路径缓存：MainModule 是跨进程模块查询，面板存活期间最贵的一项
+    private const int PathCacheTtlMs = 3000;
 
     private string _lastProcess = "";
     private uint _pathPid;
@@ -31,7 +32,7 @@ internal sealed class WindowInfoForm : MacDialogForm
 
     public WindowInfoForm(AppConfig config, Action applyConfig)
     {
-        SuspendLayout();   // 设计器惯例：构造期间挂起布局，末段 ResumeLayout+PerformLayout 时统一触发 AutoScale 落地
+        SuspendLayout();
         _config = config;
         _applyConfig = applyConfig;
 
@@ -41,19 +42,44 @@ internal sealed class WindowInfoForm : MacDialogForm
         Font = UiTheme.Font;
         BackColor = UiTheme.WindowBg;
         AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F);   // 设计基线 96 DPI：缺失该值会使 AutoScaleFactor 恒为 1、高 DPI 完全不缩放
+        AutoScaleDimensions = new SizeF(96F, 96F);
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(560, 320 + MacDialogForm.HeaderDesignPx);   // 96 DPI 设计基线（含 macOS 标题区）
+        ClientSize = new Size(620, 440 + MacDialogForm.HeaderDesignPx);
 
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            Padding = new Padding(16, 12, 16, 14),
+            BackColor = UiTheme.WindowBg,
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Tip
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // Cards
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Status & Buttons
+
+        var tip = new Label
+        {
+            Text = "● 实时侦测中：请直接切换至任意前台应用窗口，下方信息将自动更新",
+            AutoSize = true,
+            Font = UiTheme.FontCaptionBold,
+            ForeColor = UiTheme.Accent,
+            Margin = new Padding(4, 0, 4, 10),
+            BackColor = UiTheme.WindowBg,
+        };
+        root.Controls.Add(tip, 0, 0);
+
+        // 主信息卡片
+        var card = new MacCard("前台窗口属性") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
         var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            Padding = new Padding(12),
             AutoScroll = true,
+            BackColor = UiTheme.CardBg,
         };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         int row = 0;
@@ -61,63 +87,50 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             table.RowCount = row + 1;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            table.Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = UiTheme.Text, Margin = new Padding(3, 8, 10, 3) }, 0, row);
+            table.Controls.Add(new Label { Text = label, AutoSize = true, Font = UiTheme.FontBold, ForeColor = UiTheme.Text, Margin = new Padding(0, 8, 8, 4), BackColor = UiTheme.CardBg }, 0, row);
             table.Controls.Add(control, 1, row);
             row++;
         }
 
-        var tip = new Label
-        {
-            Text = "请切换到你想要获取窗口信息的窗口（自动实时读取；显示自己界面时保留上一次信息）",
-            AutoSize = true,
-            Font = UiTheme.FontCaption,
-            ForeColor = UiTheme.Dim,
-            Margin = new Padding(3, 3, 3, 8),
-        };
-        table.RowCount = row + 1;
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        table.Controls.Add(tip, 0, row);
-        table.SetColumnSpan(tip, 2);
-        row++;
-
-        AddRow("窗口进程", _process);
-        AddRow("窗口类名", _rootClass);
-        AddRow("控件类名", _focusClass);
+        AddRow("进程名称", _process);
         AddRow("窗口标题", _title);
-        AddRow("窗口进程路径", _path);
+        AddRow("进程路径", _path);
+        AddRow("顶层类名", _rootClass);
+        AddRow("焦点类名", _focusClass);
+        card.Controls.Add(table);
+        root.Controls.Add(card, 0, 1);
 
-        var buttons = new FlowLayoutPanel
+        // 底部动作行
+        var bottomBox = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.LeftToRight,
             AutoSize = true,
-            Margin = new Padding(3, 10, 3, 0),
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            BackColor = UiTheme.WindowBg,
         };
+
         _addButton.Click += (_, _) => AddRuleFromCurrent();
         _copyButton.Click += (_, _) => CopyProcessName();
+        _copyPathButton.Click += (_, _) => CopyPathName();
         var close = UiTheme.Button("关闭", width: 88);
         close.Click += (_, _) => Close();
-        buttons.Controls.Add(_addButton);
-        buttons.Controls.Add(_copyButton);
-        buttons.Controls.Add(close);
 
-        table.RowCount = row + 1;
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        table.Controls.Add(buttons, 0, row);
-        table.SetColumnSpan(buttons, 2);
-        row++;
+        bottomBox.Controls.Add(_addButton);
+        bottomBox.Controls.Add(_copyButton);
+        bottomBox.Controls.Add(_copyPathButton);
+        bottomBox.Controls.Add(close);
+        bottomBox.Controls.Add(_status);
 
-        table.RowCount = row + 1;
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        table.Controls.Add(_status, 0, row);
-        table.SetColumnSpan(_status, 2);
-
-        Controls.Add(table);
+        root.Controls.Add(bottomBox, 0, 2);
+        Controls.Add(root);
 
         _timer.Tick += (_, _) => RefreshInfo();
         Load += (_, _) =>
         {
-            FitHeightToContent(table);
-            MacDialogForm.PositionBottomRight(this);   // 高度调整后贴右下角（托盘区）
+            // 依据当前 DPI 缩放首列宽度
+            table.ColumnStyles[0].Width = UiTheme.Dpi(this, 90);
+            MacDialogForm.PositionBottomRight(this);
         };
         Shown += (_, _) =>
         {
@@ -131,10 +144,15 @@ internal sealed class WindowInfoForm : MacDialogForm
         };
 
         ResumeLayout(false);
-        PerformLayout();   // 此时子树已齐备，AutoScale 按（当前 DPI / 96）整体缩放
+        PerformLayout();
     }
 
-    /// <summary>退出路径经 TrayApp.Dispose → 只走 Dispose 不走 FormClosed，定时器需在此同样释放</summary>
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        Invalidate(true);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -150,21 +168,13 @@ internal sealed class WindowInfoForm : MacDialogForm
         var field = new MacField(readOnly: true)
         {
             Dock = DockStyle.Fill,
-            BackColor = UiTheme.WindowBg,   // 字段直接落在窗口底色上：圆角外的衬底与窗口一致
-            Margin = new Padding(3, 4, 3, 2),
+            BackColor = UiTheme.CardBg,
+            Margin = new Padding(0, 3, 0, 5),
+            Height = 30,
         };
         if (mono)
             field.Inner.Font = UiTheme.FontMono;
         return field;
-    }
-
-    /// <summary>窗口高度贴合内容（内容较少时不再留下大片空白）</summary>
-    private void FitHeightToContent(TableLayoutPanel content)
-    {
-        int width = content.Width > 0 ? content.Width : UiTheme.Dpi(this, 536);
-        int contentHeight = content.GetPreferredSize(new Size(width, 0)).Height;
-        int chrome = UiTheme.Dpi(this, MacDialogForm.HeaderDesignPx);
-        ClientSize = new Size(ClientSize.Width, contentHeight + chrome);
     }
 
     private void RefreshInfo()
@@ -176,7 +186,7 @@ internal sealed class WindowInfoForm : MacDialogForm
             return;
         Win32.NativeMethods.GetWindowThreadProcessId(fg, out uint pid);
         if (pid == 0 || pid == (uint)Environment.ProcessId)
-            return; // 自身界面：保留上次内容
+            return;
 
         long now = Environment.TickCount64;
         bool refreshPath = pid != _pathPid || now - _pathAt >= PathCacheTtlMs;
@@ -199,6 +209,7 @@ internal sealed class WindowInfoForm : MacDialogForm
             _lastProcess = info.Process;
             _addButton.Enabled = true;
             _copyButton.Enabled = true;
+            _copyPathButton.Enabled = !string.IsNullOrEmpty(_pathValue);
         }
     }
 
@@ -213,7 +224,7 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             if (string.Equals(r.Process, pattern, StringComparison.OrdinalIgnoreCase))
             {
-                _status.Text = $"已存在进程规则「{process}」，未重复添加。";
+                _status.Text = $"已存在规则「{process}」";
                 return;
             }
         }
@@ -226,7 +237,7 @@ internal sealed class WindowInfoForm : MacDialogForm
         });
         _applyConfig();
 
-        _status.Text = $"已添加白名单规则：「{process}」（可在托盘菜单「白名单规则…」中调整或删除）";
+        _status.Text = $"已成功添加白名单规则：「{process}」";
     }
 
     private void CopyProcessName()
@@ -237,6 +248,21 @@ internal sealed class WindowInfoForm : MacDialogForm
         {
             Clipboard.SetText(_lastProcess);
             _status.Text = $"已复制进程名：「{_lastProcess}」";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "复制失败：" + ex.Message;
+        }
+    }
+
+    private void CopyPathName()
+    {
+        if (string.IsNullOrEmpty(_pathValue))
+            return;
+        try
+        {
+            Clipboard.SetText(_pathValue);
+            _status.Text = "已复制可执行文件路径";
         }
         catch (Exception ex)
         {
