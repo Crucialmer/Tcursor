@@ -532,14 +532,18 @@ internal sealed class TrayApp : ApplicationContext
     {
         try
         {
+            int currentPid = Environment.ProcessId;
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = Environment.ProcessPath ?? Application.ExecutablePath,
+                Arguments = $"--wait-pid {currentPid}",
                 UseShellExecute = true,
                 Verb = "runas",
             };
-            System.Diagnostics.Process.Start(psi);
-            Application.Exit();
+            if (System.Diagnostics.Process.Start(psi) is not null)
+            {
+                Application.Exit();
+            }
         }
         catch
         {

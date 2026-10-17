@@ -193,16 +193,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 var edits = element.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
                 if (edits is { Length: > 0 })
                 {
-                    // 优先检查获得键盘焦点的编辑框
+                    // 仅检查当前明确拥有键盘焦点的编辑控件（杜绝文件管理器未激活的地址栏/搜索框等被误判为光标）
                     foreach (var edit in edits)
                     {
                         if (edit.Properties.HasKeyboardFocus.ValueOrDefault && TryElementCaret(edit, out caret))
-                            return true;
-                    }
-                    // 其次尝试其余编辑框
-                    foreach (var edit in edits)
-                    {
-                        if (TryElementCaret(edit, out caret))
                             return true;
                     }
                 }
@@ -288,12 +282,16 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         return false;
     }
 
-    /// <summary>从编辑框自身几何边界推算光标位置（用于空文本框或未暴露文本几何的自绘/WPF 输入框）</summary>
+    /// <summary>从编辑框自身几何边界推算光标位置（用于空文本框或未暴露文本几何的自绘/WPF 输入框，仅在拥有键盘焦点时生效）</summary>
     private static bool TryCaretFromEditBounds(AutomationElement edit, out CaretRect caret)
     {
         caret = default;
         try
         {
+            // 严格验证：必须明确具有键盘焦点，防止未处于编辑状态的空控件或被动控件被误判为光标
+            if (!edit.Properties.HasKeyboardFocus.ValueOrDefault)
+                return false;
+
             var bounds = edit.BoundingRectangle;
             if (bounds.Width > 0 && bounds.Height > 0)
             {

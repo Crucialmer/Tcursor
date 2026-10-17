@@ -55,10 +55,38 @@ internal static class Program
             return;
         }
 
+        // 重启或提权过渡时等待原进程完全退出（防单实例互斥竞争直接闪退）
+        if (args.Length >= 2 && args[0] == "--wait-pid" && int.TryParse(args[1], out int relaunchWaitPid))
+        {
+            try
+            {
+                using var p = System.Diagnostics.Process.GetProcessById(relaunchWaitPid);
+                p.WaitForExit(5000);
+            }
+            catch
+            {
+            }
+        }
+
         // 单实例（与本软件的其它副本互斥）
         using var mutex = new Mutex(true, "Tcursor.SingleInstance", out bool createdNew);
         if (!createdNew)
-            return;
+        {
+            // 若原进程正处于退出过渡期，宽限等待最多 1 秒
+            try
+            {
+                if (!mutex.WaitOne(1000, false))
+                    return;
+            }
+            catch (AbandonedMutexException)
+            {
+                // 原进程已退出并丢弃互斥体：正常接管
+            }
+            catch
+            {
+                return;
+            }
+        }
 
         // 启动时安装（v1.3）：本机已有「已就绪」且比当前版本更新的更新包 → 现在装好并重启一次（约 2 秒），
         // 这样「强制结束」「关机超时」「上次退出时还没下好」这几种情况也能在下次启动时补上。

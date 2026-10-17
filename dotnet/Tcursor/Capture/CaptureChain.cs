@@ -217,23 +217,33 @@ internal sealed class CaptureChain : IDisposable
                 }
             }
 
-            // 2. 检查前台 GUI 线程的键盘焦点窗口或活动窗口
+            // 2. 检查前台 GUI 线程的键盘焦点窗口是否属于明确的文本输入类控件（如标准 Edit/RichEdit/文本框）
             var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
-            if (GetGUIThreadInfo(0, ref gti))
+            if (GetGUIThreadInfo(0, ref gti) && gti.hwndFocus != IntPtr.Zero)
             {
-                IntPtr focus = gti.hwndFocus != IntPtr.Zero ? gti.hwndFocus : gti.hwndActive;
-                if (focus != IntPtr.Zero && GetWindowRect(focus, out RECT focusRect))
+                var sb = new System.Text.StringBuilder(64);
+                if (GetClassName(gti.hwndFocus, sb, sb.Capacity) > 0)
                 {
-                    int w = focusRect.Right - focusRect.Left;
-                    int h = focusRect.Bottom - focusRect.Top;
-                    // 紧凑型独立输入框或搜索栏（如 Quicker 快捷搜索栏、弹出输入框；高度在 14px~120px 之间）
-                    if (w >= 16 && h >= 14 && h <= 120)
+                    string className = sb.ToString();
+                    bool isEditClass = className.Equals("Edit", StringComparison.OrdinalIgnoreCase)
+                        || className.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase)
+                        || className.StartsWith("RICHEDIT", StringComparison.OrdinalIgnoreCase)
+                        || className.StartsWith("MsftEdit", StringComparison.OrdinalIgnoreCase)
+                        || className.IndexOf("TextBox", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    if (isEditClass && GetWindowRect(gti.hwndFocus, out RECT focusRect))
                     {
-                        int padX = Math.Min(8, Math.Max(4, w / 16));
-                        int padY = Math.Max(2, (h - 20) / 2);
-                        int caretH = Math.Min(20, Math.Max(12, h - 4));
-                        rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
-                        return true;
+                        int w = focusRect.Right - focusRect.Left;
+                        int h = focusRect.Bottom - focusRect.Top;
+                        // 紧凑型独立输入框或搜索栏（高度在 14px~120px 之间）
+                        if (w >= 16 && h >= 14 && h <= 120)
+                        {
+                            int padX = Math.Min(8, Math.Max(4, w / 16));
+                            int padY = Math.Max(2, (h - 20) / 2);
+                            int caretH = Math.Min(20, Math.Max(12, h - 4));
+                            rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
+                            return true;
+                        }
                     }
                 }
             }
