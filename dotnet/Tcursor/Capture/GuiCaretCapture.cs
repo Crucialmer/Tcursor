@@ -32,15 +32,14 @@ internal sealed class GuiCaretCapture : ICaretCapture
             if (!ClientToScreen(gti.hwndCaret, ref topLeft) || !ClientToScreen(gti.hwndCaret, ref bottomRight))
                 return false;
 
-            if (bottomRight.X - topLeft.X < 0 || bottomRight.Y - topLeft.Y <= 0)
-                return false;
-
             // 坐标合理性校验（防止异常值把窗口丢到天外）
             if (Math.Abs(topLeft.X) > 200000 || Math.Abs(topLeft.Y) > 200000)
                 return false;
 
-            int caretW = Math.Max(1, bottomRight.X - topLeft.X);
-            int caretH = Math.Max(1, bottomRight.Y - topLeft.Y);
+            int diffX = bottomRight.X - topLeft.X;
+            int diffY = bottomRight.Y - topLeft.Y;
+            int caretW = Math.Max(1, Math.Abs(diffX));
+            int caretH = Math.Max(14, Math.Abs(diffY));
             caret = new CaretRect(topLeft.X, topLeft.Y, topLeft.X + caretW, topLeft.Y + caretH);
             return true;
         }

@@ -333,12 +333,33 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (isWeb && !IsEditableControl(element))
                 return false;
 
+            string name = "";
+            string clsName = "";
+            string autoId = "";
+            try
+            {
+                name = element.Properties.Name.ValueOrDefault ?? "";
+                clsName = element.Properties.ClassName.ValueOrDefault ?? "";
+                autoId = element.Properties.AutomationId.ValueOrDefault ?? "";
+            }
+            catch { }
+
+            bool isAddressBar = !isWeb && (
+                clsName.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                autoId.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("地址和搜索栏", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Address and search bar", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("地址", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Address", StringComparison.OrdinalIgnoreCase));
+
             var text2 = element.Patterns.Text2.PatternOrDefault;
             if (text2 is not null)
             {
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
                 if (isActive && range is not null && IsCollapsed(range))
                 {
+                    if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                        return true;
                     if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
                         return true;
                     if (TryCaretViaExpandUnit(range, out caret))
@@ -360,6 +381,11 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     // 界面不存在跳动的输入光标，坚决不显示提示符号，更绝不能跟随鼠标向前跑！
                     if (IsCollapsed(selRange))
                     {
+                        // Chrome 网址输入框（Omnibox）首选：直接通过 Chromium AXSystemCaretWin (MSAA OBJID_CARET)
+                        // 提取真实物理光标屏幕矩形（完美跟随任意点击与打字位置）
+                        if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                            return true;
+
                         if (TryRectOf(selRange, out CaretRect selRect)
                             && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
                         {
@@ -375,24 +401,6 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         if (TryCaretViaNeighborRange(selRange, out caret))
                             return true;
 
-                        // Chromium Views 专用：对于 Chrome 网址输入框（OmniboxViewViews），
-                        // 折叠选区自身不返回字符几何矩形，且仅在拥有文本且拥有焦点时借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取物理屏幕矩形！
-                        string clsName = "";
-                        try { clsName = element.Properties.ClassName.ValueOrDefault ?? ""; } catch { }
-                        if (!isWeb && clsName.Contains("Omnibox", StringComparison.OrdinalIgnoreCase))
-                        {
-                            bool hasText = false;
-                            try
-                            {
-                                string doc = text.DocumentRange?.GetText(8) ?? "";
-                                hasText = doc.Trim().Length > 0;
-                            }
-                            catch { }
-
-                            if (hasText && TryMsaaCaret(element, topHwnd, out caret))
-                                return true;
-                        }
-
                         // 纯光标插入点折叠状态下未暴露文本几何（如未输入/空文本框）：回退到控件几何边界推算
                         if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                             return true;
@@ -406,6 +414,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else
                 {
+                    // Chrome 网址输入框：即使选区尚未建立，只要输入框拥有焦点，优先尝试读取 Chromium 系统光标
+                    if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                        return true;
+
                     // 选区为空（非输入编辑态）：仅当拥有焦点的可编辑输入框允许从控件几何推算
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
@@ -413,6 +425,8 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             }
             else if (!isWeb && IsEditableControl(element))
             {
+                if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                    return true;
                 if (TryCaretFromEditBounds(element, out caret, isFocusedElement))
                     return true;
             }
@@ -539,8 +553,8 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 else if (isSearchOrAddress || (isChat && bounds.Height <= Math.Round(36 * scale)))
                 {
                     // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框 / 微信顶栏单行搜索框：
-                    // 避开探测到的左侧图标，若无内部图标则取真实单行文字起始内边距（微信 10px / 网址栏 6px）
-                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 6) * scale);
+                    // 避开探测到的左侧图标，若无内部图标则取真实单行文字起始内边距（微信 10px / 桌面地址与搜索栏 34px）
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 34) * scale);
                     caretHeight = (int)Math.Round(16 * scale);
                     if (bounds.Height < caretHeight + 4)
                         caretHeight = Math.Max(12, (int)bounds.Height - 4);

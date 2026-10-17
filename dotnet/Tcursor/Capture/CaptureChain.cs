@@ -247,9 +247,14 @@ internal sealed class CaptureChain : IDisposable
                             bool isChat = className.IndexOf("Chat", StringComparison.OrdinalIgnoreCase) >= 0
                                 || className.IndexOf("MMRichEdit", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                            int padX = isChat ? (int)Math.Round(12 * scale) : (h <= 54 * scale ? (int)Math.Round(10 * scale) : Math.Min(8, Math.Max(4, w / 16)));
-                            int caretH = isChat ? (int)Math.Round(16 * scale) : (h <= 54 * scale ? Math.Min((int)Math.Round(18 * scale), Math.Max(12, h - 8)) : (int)Math.Round(16 * scale));
-                            int padY = isChat ? (int)Math.Round(8 * scale) : (h <= 54 * scale ? Math.Max(2, (h - caretH) / 2) : (int)Math.Round(4 * scale));
+                            // 严禁对大型代码编辑器与文档编辑视口（如 EmEditorView、Scintilla、Notepad 等控件高度 > 54px）
+                            // 假定为单行输入框并推算 (focusRect.Left + 8, focusRect.Top + 4) 左上角假光标！
+                            if (!isChat && h > (int)Math.Round(54 * scale))
+                                return false;
+
+                            int padX = isChat ? (int)Math.Round(12 * scale) : (int)Math.Round(10 * scale);
+                            int caretH = isChat ? (int)Math.Round(16 * scale) : Math.Min((int)Math.Round(18 * scale), Math.Max(12, h - 8));
+                            int padY = isChat ? (int)Math.Round(8 * scale) : Math.Max(2, (h - caretH) / 2);
 
                             rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
                             return true;

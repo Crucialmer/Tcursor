@@ -352,7 +352,10 @@ internal sealed class CaretController : IDisposable
         // 2. 若 caretH < 10px（TSF 选区退化残片/微小残线），底层 top 已处于文字行顶，必须补齐为微信标准 16px*scale 行高，
         //    彻底消除此前仅 +1px 导致搜索框在未输入/微小光标时突发严重偏上的缺陷；
         // 3. 若 caretH > 24px（多行编辑区或聊天框容器整框包围盒，如 48~150px），首行文字严格按 14px*scale 标准聊天字号折叠。
-        // 通用窗口与现代编辑器（Notepad、Chrome、EmEditor、资源管理器等）维持标准 22px*scale 行高归一化。
+        // 通用窗口与专业编辑器（EmEditor、Notepad、VS Code、Chrome、资源管理器等）：
+        // 在真实排版单行字号范围（12px~48px*scale）内 100% 遵照真实 caret.Bottom 锚定，
+        // 彻底根治强制归一化到 22px 导致的 EmEditor 字号变大时符号切入文字内部、字号变小时过度下坠问题；
+        // 仅在光标高度极矮（< 12px）时补偿至 18px，过大容器（> 48px）时折叠至 20px。
         int effectiveBottom;
         if (isChatApp)
         {
@@ -369,13 +372,17 @@ internal sealed class CaretController : IDisposable
                 effectiveBottom = caret.Top + (int)Math.Round(14 * scale);
             }
         }
-        else if (caretH <= maxUiLineH)
+        else if (caretH >= (int)Math.Round(12 * scale) && caretH <= (int)Math.Round(48 * scale))
         {
-            effectiveBottom = caret.Top + targetLineH;
+            effectiveBottom = caret.Bottom;
+        }
+        else if (caretH < (int)Math.Round(12 * scale))
+        {
+            effectiveBottom = caret.Top + (int)Math.Round(18 * scale);
         }
         else
         {
-            effectiveBottom = caret.Bottom;
+            effectiveBottom = caret.Top + (int)Math.Round(20 * scale);
         }
 
         int x = caret.Left + offsetX - pad;
