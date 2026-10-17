@@ -224,7 +224,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             AutomationElement? focused = automation.FocusedElement();
             if (focused is not null)
             {
-                if (IsChromiumPageRoot(focused) || (IsWebElement(focused) && focused.ControlType != ControlType.Edit))
+                if (IsChromiumPageRoot(focused) || (IsWebElement(focused) && !IsEditableControl(focused)))
                 {
                     focusedIsChromiumNonEdit = true;
                 }
@@ -294,7 +294,25 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
     private static bool IsEditableControl(AutomationElement element)
     {
-        return element.ControlType == ControlType.Edit;
+        try
+        {
+            var ct = element.ControlType;
+            if (ct == ControlType.Edit || ct == ControlType.ComboBox)
+            {
+                // 排除明确被禁用的控件
+                if (!element.Properties.IsEnabled.ValueOrDefault)
+                    return false;
+
+                // 若支持 ValuePattern，检查是否只读
+                var val = element.Patterns.Value.PatternOrDefault;
+                if (val is not null && val.IsReadOnly.ValueOrDefault)
+                    return false;
+
+                return true;
+            }
+        }
+        catch { }
+        return false;
     }
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
@@ -309,22 +327,20 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 return false;
 
             // 网页内容宿主物理隔离：处于 Chromium 渲染宿主（Chrome_RenderWidgetHostHWND）之下的元素，
-            // 必须明确是可编辑控件（ControlType.Edit，如 input/textarea/contenteditable），
+            // 必须明确是可编辑控件（IsEditableControl，涵盖 input/textarea/combobox/contenteditable），
             // 严禁将网页普通段落、标题、链接、正文容器等非编辑元素的选区误判为打字光标！
             bool isWeb = IsWebElement(element);
-            if (isWeb && element.ControlType != ControlType.Edit)
+            if (isWeb && !IsEditableControl(element))
                 return false;
 
             var text2 = element.Patterns.Text2.PatternOrDefault;
             if (text2 is not null)
             {
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
-                if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
-                    return true;
-                // XAML/壳控件/Chromium 的 Text2 光标范围常常没有几何矩形（如 Win11 资源管理器地址栏、搜索框）：
-                // 仅在光标处于活动状态时，借扩展字符单元或相邻字符推算光标位置
-                if (range is not null && isActive)
+                if (isActive && range is not null && IsCollapsed(range))
                 {
+                    if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
+                        return true;
                     if (TryCaretViaExpandUnit(range, out caret))
                         return true;
                     if (TryCaretViaNeighborRange(range, out caret))
@@ -339,17 +355,18 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 if (selection is { Length: > 0 })
                 {
                     ITextRange selRange = selection[0];
-                    if (TryRectOf(selRange, out CaretRect selRect)
-                        && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
-                    {
-                        caret = selRect;
-                        return true;
-                    }
-
-                    // 仅当属于纯插入点（折叠选区）时，通过字符单元扩展或相邻字符推算光标；
-                    // 成片选区（拖选/全选 URL）不误判为光标，避免死锁在最左侧
+                    // 关键逻辑：必须是纯文字插入点（折叠选区，Start == End）！
+                    // 当用户选中文字（向前/向后划选、双击选词、拖选等处于非折叠选区）时，
+                    // 界面不存在跳动的输入光标，坚决不显示提示符号，更绝不能跟随鼠标向前跑！
                     if (IsCollapsed(selRange))
                     {
+                        if (TryRectOf(selRange, out CaretRect selRect)
+                            && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
+                        {
+                            caret = selRect;
+                            return true;
+                        }
+
                         // 优先通过 ExpandToEnclosingUnit(Character) 还原光标位置（彻底解决 Chrome 网址栏与网页输入框）
                         if (TryCaretViaExpandUnit(selRange, out caret))
                             return true;
@@ -380,19 +397,21 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                             return true;
                     }
-
-                    // 尝试通过鼠标坐标辅助拾取点击处字符
-                    if (TryCaretFromMousePoint(element, text, out caret))
-                        return true;
+                    else
+                    {
+                        // 选区处于非折叠展开状态（用户正在划选或已选中成片文字）：
+                        // 此时用户处于划选状态，界面无文本插入光标，坚决返回 false！
+                        return false;
+                    }
                 }
                 else
                 {
-                    // 选区为空（非输入编辑态）：仅当拥有焦点的可编辑输入框（如刚获得焦点但尚未产生选区的 Edit 控件）才允许从控件几何推算
+                    // 选区为空（非输入编辑态）：仅当拥有焦点的可编辑输入框允许从控件几何推算
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
             }
-            else if (IsEditableControl(element))
+            else if (!isWeb && IsEditableControl(element))
             {
                 if (TryCaretFromEditBounds(element, out caret, isFocusedElement))
                     return true;
@@ -710,16 +729,19 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         return false;
     }
 
-    /// <summary>判断选区是否为零长度纯光标折叠态</summary>
+    /// <summary>判断选区是否为零长度纯光标折叠态（双重校验：端点重合且跨度为 0 字符）</summary>
     private static bool IsCollapsed(ITextRange range)
     {
         try
         {
-            return range.CompareEndpoints(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.End) == 0;
+            if (range.CompareEndpoints(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.End) != 0)
+                return false;
+            string sample = range.GetText(1);
+            return string.IsNullOrEmpty(sample);
         }
         catch
         {
-            return true;
+            return false;
         }
     }
 
@@ -777,38 +799,6 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         catch
         {
             // 忽略 ExpandToEnclosingUnit 不支持的异常
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// 当选区端点未暴露或处于点击更新瞬态时，利用当前鼠标坐标在文本控件内拾取对应字符位置
-    /// </summary>
-    private static bool TryCaretFromMousePoint(AutomationElement element, ITextPattern text, out CaretRect caret)
-    {
-        caret = default;
-        try
-        {
-            if (Win32.NativeMethods.GetCursorPos(out Win32.NativeMethods.POINT mousePt))
-            {
-                var bounds = element.BoundingRectangle;
-                if (bounds.Width > 0 && bounds.Height > 0 &&
-                    mousePt.X >= bounds.Left && mousePt.X <= bounds.Right &&
-                    mousePt.Y >= bounds.Top && mousePt.Y <= bounds.Bottom)
-                {
-                    ITextRange? ptRange = text.RangeFromPoint(new System.Drawing.Point(mousePt.X, mousePt.Y));
-                    if (ptRange is not null)
-                    {
-                        if (TryRectOf(ptRange, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
-                            return true;
-                        if (TryCaretViaExpandUnit(ptRange, out caret))
-                            return true;
-                    }
-                }
-            }
-        }
-        catch
-        {
         }
         return false;
     }

@@ -2,6 +2,28 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
+## 功能范围（v3.11 正式版）
+
+- **彻底修复 Chrome 中 Google 搜索主页不显示光标提示符号 Bug（扩展网页可编辑控件支持 ComboBox 角色）**：
+  - **深层技术根因**：
+    1. Google 搜索主页（`google.com`）的搜索框在 HTML 中声明了 `role="combobox"` 属性（`<textarea class="gLFyf" role="combobox" ...>`）；
+    2. Chromium 无障碍引擎（`AXPlatformNodeWin`）将携带 `role="combobox"` 的输入元素直接映射为 Windows UIA 的 `ControlType.ComboBox`；
+    3. 此前版本为拦截网页正文非编辑文本，在 `CaptureCore` 中硬编码了 `focused.ControlType != ControlType.Edit`，并在 `TryElementCaret` 中硬编码了 `element.ControlType != ControlType.Edit`，将 `ControlType.ComboBox` 误判为网页非编辑内容并直接拦截（标记为 `focusedIsChromiumNonEdit = true`），导致用户在 Google 搜索框无论未输入、点击还是打字均被全部阻断；
+    4. 此外，此前 `IsEditableControl` 仅支持 `ControlType.Edit`，导致空搜索框无法借由控件边界推算未输入光标起始位置；
+  - **智能可编辑控件鉴权体系（`IsEditableControl`）**：
+    1. 升级 `IsEditableControl`，全面支持 `ControlType.Edit` 与 `ControlType.ComboBox`，同时联动验证 `IsEnabled == true` 以及 `ValuePattern.IsReadOnly == false`，精确支持 Google 搜索主页、Bing 搜索、各类带下拉建议的现代 Web 输入框；
+    2. 严格阻断网页普通文本（`<p>`、`<h1>`、`<a>`、`<div>`、`<span>` 等均为 `Text`/`Group`/`Hyperlink`），保持网页正文点击 100% 零误弹。
+- **彻底根治划选文字时提示符号跟随鼠标移动 Bug（坚决执行纯折叠光标鉴权，根除鼠标光标伪造漏洞）**：
+  - **深层技术根因**：
+    1. 当用户从后向前（或从前向后）按住鼠标拖拽划选成片文字时，`ITextPattern.GetSelection()` 处于非折叠选区状态（`Start != End`），此时界面处于文本高亮选中态，根本不存在跳动的文本插入光标；
+    2. 此前代码在选区包含单个字符（宽度 `<= 16px`）时误将其当作光标采用；而在划选较长文本时，此前代码又穿透调用了 `TryCaretFromMousePoint`，利用鼠标瞬时物理坐标在文本控件内拾取对应字符包围盒并伪造成光标，导致提示符号在划选过程中完全跟着鼠标指针游走，严重违背了“仅在有输入文本光标跳动时才显示”的设计原则；
+  - **纯折叠光标严格鉴权与假光标彻底清除**：
+    1. 引入折叠选区双重精准校验（`CompareEndpoints == 0` 且 `range.GetText(1) == ""`），严格限定 `text2.GetCaretRange` 与 `text.GetSelection` 必须处于纯文字插入点（折叠态）才允许提取光标；
+    2. 当检测到处于非折叠选区（成片划选中、双击选词、拖选等）时，坚决返回 `false` 并立即隐藏符号，杜绝任何符号显示；
+    3. 彻底彻底移除 `TryCaretFromMousePoint` 鼠标伪造光标逻辑，彻底根除任何提示符号跟随鼠标游走的漏洞。
+- **零回归与稳定性保证**：严格保证 Chrome 网址栏与网页输入框、微信输入法输拼音尾端跟随、微信搜索框/聊天框垂直对齐、Windows 资源管理器、记事本等通用程序 100% 正常。
+- **界面外观绝对冻结（零变动）**：严格保持 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系及三标签页纯净布局零修改。
+
 ## 功能范围（v3.10 正式版）
 
 - **彻底根除 Chrome 刚打开或切换时未输入状态下初始位置错误与延迟恢复 Bug（Chromium MSAA 污染隔离与回退拦截）**：
