@@ -181,11 +181,35 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     private static bool CaptureCore(UIA3Automation automation, IntPtr hwnd, out CaretRect caret)
     {
         caret = default;
-        AutomationElement? element = automation.FromHandle(hwnd);
-        if (element is not null && TryElementCaret(element, out caret))
-            return true;
 
-        // 退化 1：从目标窗口元素子树查找活动焦点控件或编辑框（解决 WPF / Quicker 等顶层窗口无 TextPattern 且由子控件承载输入的问题）
+        // 步骤 1（极速首选，耗时通常 < 2ms）：直接获取当前具有全局键盘焦点的 UIA 元素
+        // 覆盖 99% 的文本输入场景（Chrome、Edge、微信、Notepad、EmEditor、资源管理器地址栏/搜索框、各类 WPF/自绘窗口）
+        // 且由于 FocusedElement 本身即代表当前键盘输入焦点，可免受跨完整性级别/跨权限时 HasKeyboardFocus 属性读取失效的影响
+        try
+        {
+            AutomationElement? focused = automation.FocusedElement();
+            if (focused is not null && TryElementCaret(focused, out caret, isFocusedElement: true))
+                return true;
+        }
+        catch
+        {
+            // 忽略跨进程 UIPI 或焦点获取异常
+        }
+
+        // 步骤 2：直接检查目标窗口根元素（部分简易窗口根元素自身即承载 TextPattern）
+        AutomationElement? element = null;
+        try
+        {
+            element = automation.FromHandle(hwnd);
+            if (element is not null && TryElementCaret(element, out caret, isFocusedElement: false))
+                return true;
+        }
+        catch
+        {
+            // 忽略句柄获取异常
+        }
+
+        // 步骤 3：退化回退（仅当 FocusedElement 未能命中时，针对非标准窗口在窗口子树内查找焦点控件）
         if (element is not null)
         {
             try
@@ -196,7 +220,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     // 仅检查当前明确拥有键盘焦点的编辑控件（杜绝文件管理器未激活的地址栏/搜索框等被误判为光标）
                     foreach (var edit in edits)
                     {
-                        if (edit.Properties.HasKeyboardFocus.ValueOrDefault && TryElementCaret(edit, out caret))
+                        if (edit.Properties.HasKeyboardFocus.ValueOrDefault && TryElementCaret(edit, out caret, isFocusedElement: true))
                             return true;
                     }
                 }
@@ -207,25 +231,12 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             }
         }
 
-        // 退化 2：全局焦点元素（Chromium 等：顶层窗口无 Text 模式，光标在焦点元素（文档/输入框）上）
-        AutomationElement? focused;
-        try
-        {
-            focused = automation.FocusedElement();
-        }
-        catch
-        {
-            focused = null;
-        }
-        if (focused is not null && TryElementCaret(focused, out caret))
-            return true;
-
         return false;
     }
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
     /// （含 WPF 折叠选区无矩形修复与相邻字符推算，失败时按输入控件边界推算）。</summary>
-    private static bool TryElementCaret(AutomationElement element, out CaretRect caret)
+    private static bool TryElementCaret(AutomationElement element, out CaretRect caret, bool isFocusedElement = false)
     {
         caret = default;
         try
@@ -262,15 +273,15 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         return true;
 
                     // 若输入框为空或无法通过相邻字符获取，回退到输入控件边界推算
-                    if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+                    if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
-                else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+                else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                 {
                     return true;
                 }
             }
-            else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+            else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
             {
                 return true;
             }
@@ -283,13 +294,14 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     }
 
     /// <summary>从编辑框自身几何边界推算光标位置（用于空文本框或未暴露文本几何的自绘/WPF 输入框，仅在拥有键盘焦点时生效）</summary>
-    private static bool TryCaretFromEditBounds(AutomationElement edit, out CaretRect caret)
+    private static bool TryCaretFromEditBounds(AutomationElement edit, out CaretRect caret, bool isFocusedElement = false)
     {
         caret = default;
         try
         {
-            // 严格验证：必须明确具有键盘焦点，防止未处于编辑状态的空控件或被动控件被误判为光标
-            if (!edit.Properties.HasKeyboardFocus.ValueOrDefault)
+            // 严格验证：必须明确具有键盘焦点，防止未处于编辑状态的空控件或被动控件被误判为光标；
+            // 若该元素已经来自 FocusedElement()，则已知具有全局焦点，无需且不可再因跨完整性级别读取属性失败而误判放弃
+            if (!isFocusedElement && !edit.Properties.HasKeyboardFocus.ValueOrDefault)
                 return false;
 
             var bounds = edit.BoundingRectangle;

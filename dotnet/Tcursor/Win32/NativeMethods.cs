@@ -35,6 +35,7 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern bool GetCursorInfo(out CURSORINFO pci);
     [DllImport("user32.dll")] internal static extern bool GetCursorPos(out POINT lpPoint);
     [DllImport("user32.dll")] internal static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+    [DllImport("user32.dll")] internal static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
 
     /// <summary>窗口拖动（客户区自绘标题区）用到的消息与命中码</summary>
     internal const int WM_NCLBUTTONDOWN = 0x00A1;
@@ -179,7 +180,10 @@ internal static class NativeMethods
         WINEVENT_SKIPOWNPROCESS = 0x0002,
         ULW_ALPHA = 0x00000002,
         MONITOR_DEFAULTTONEAREST = 2,
-        CURSOR_SHOWING = 0x00000001;
+        CURSOR_SHOWING = 0x00000001,
+        GA_PARENT = 1,
+        GA_ROOT = 2,
+        GA_ROOTOWNER = 3;
 
     internal const int
         SW_HIDE = 0,

@@ -229,6 +229,10 @@ public static class ConfigStore
                 if (cfg is not null)
                 {
                     Normalize(cfg);
+                    if (IsPortable() && cfg.Rules.Count == 0)
+                    {
+                        ImportRulesFromAppDataIfAvailable(cfg);
+                    }
                     return cfg;
                 }
             }
@@ -238,6 +242,32 @@ public static class ConfigStore
             Core.Log.Error(ex);
         }
         return new AppConfig();
+    }
+
+    /// <summary>跨权限平滑容灾：以管理员身份或便携模式启动时，若本地规则为空，自动导入 AppData 中已有的白名单规则</summary>
+    private static void ImportRulesFromAppDataIfAvailable(AppConfig cfg)
+    {
+        try
+        {
+            string appDataConfig = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tcursor", "config.json");
+            if (File.Exists(appDataConfig) && !string.Equals(appDataConfig, ConfigPath, StringComparison.OrdinalIgnoreCase))
+            {
+                string json = File.ReadAllText(appDataConfig);
+                var appDataCfg = JsonSerializer.Deserialize<AppConfig>(json, Options);
+                if (appDataCfg?.Rules is { Count: > 0 })
+                {
+                    cfg.Rules = appDataCfg.Rules;
+                    Save(cfg);
+                    Core.Log.Info($"已自动从 AppData 导入 {cfg.Rules.Count} 条白名单规则至便携配置");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.Log.Error(ex);
+        }
     }
 
     /// <summary>损坏配置留档（尽力而为；失败不影响启动）</summary>

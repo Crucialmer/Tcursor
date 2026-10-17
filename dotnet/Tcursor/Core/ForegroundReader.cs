@@ -32,8 +32,14 @@ internal sealed class ForegroundReader
         {
             if (gti.hwndActive != IntPtr.Zero && gti.hwndActive != hwnd)
             {
-                // 如果当前前台线程内有激活的弹出窗口（如 Quicker 快捷搜索框、独立悬浮输入面板），优先采纳该活动窗口
-                hwnd = gti.hwndActive;
+                // 如果当前前台线程内有激活的弹出窗口（如 Quicker 快捷搜索框、独立悬浮输入面板），
+                // 仅当 hwndActive 是一个独立的顶级窗口（其根祖先不是当前 hwnd）时才采纳，
+                // 绝不能把主窗口内的子控件/子标签页（如资源管理器的 ShellTabWindowClass）误当作前台窗口
+                IntPtr activeRoot = GetAncestor(gti.hwndActive, GA_ROOT);
+                if (activeRoot != IntPtr.Zero && activeRoot != hwnd)
+                {
+                    hwnd = activeRoot;
+                }
             }
         }
 

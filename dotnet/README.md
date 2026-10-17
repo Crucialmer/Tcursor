@@ -2,6 +2,16 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
+## 功能范围（v3.0 正式版）
+
+- **彻底修复管理员模式下已加入白名单软件不提示光标符号 Bug**：
+  - **前台窗口句柄防劫持校验（根治资源管理器地址栏/主窗口坐标失效）**：在 `ForegroundReader` 中对 `gti.hwndActive` 增加顶级根祖先鉴权（`GetAncestor(hwndActive, GA_ROOT) != hwnd`），仅当活动窗口为独立顶级窗口（如 Quicker 独立悬浮搜索框）时才采纳，严禁将资源管理器内部的子标签页（`ShellTabWindowClass`）误当作前台窗口，彻底解决地址栏光标因超出子标签页包围盒而被误判剔除的问题；
+  - **UIA 极速全局焦点优先探测（< 2ms 瞬时响应，彻底杜绝 150ms 超时退避）**：重构 `UiaCaretCapture.CaptureCore` 发现机制，将 `automation.FocusedElement()` 提至第一阶段极速探测；在管理员权限跨权限访问目标应用时，彻底免除在整树遍历控件（`FindAllDescendants`）引起的几百毫秒卡顿与 150ms 超时退避；
+  - **跨完整性级别（UIPI）焦点属性信任机制**：对直接由 `FocusedElement()` 返回的控件赋予焦点信任标识，免受跨权限时 `HasKeyboardFocus` 属性缓存失效与读取失败的影响；同时保持文件管理器浏览文件夹（焦点在 `ListItem`）时的零误判；
+  - **便携模式跨权限配置无缝平滑容灾**：在 `ConfigStore.Load()` 中引入平滑容灾，当用户在标准用户下配置的白名单位于 `%LOCALAPPDATA%`，以管理员身份启动转入便携模式且本地规则为空时，自动无损导入 AppData 规则，杜绝白名单规则丢失；
+  - **兜底捕获控件类名扩展**：在 `CaptureChain.TryFallbackCaret` 中扩充 `Search` 与 `Scintilla` 支持，覆盖更多现代化搜索框与代码编辑器；
+- **界面外观绝对冻结（零变动）**：严格保持经典的 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系与三标签页纯净布局不变。
+
 ## 功能范围（v2.9 正式版）
 
 - **全局行高基准归一化 · 彻底统一各软件垂直对齐（彻底解决 EmEditor偏上 / 文件管理器偏上 / 微信聊天框偏下）**：

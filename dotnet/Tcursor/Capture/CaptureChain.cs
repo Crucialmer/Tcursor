@@ -207,7 +207,9 @@ internal sealed class CaptureChain : IDisposable
                         || className.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase)
                         || className.StartsWith("RICHEDIT", StringComparison.OrdinalIgnoreCase)
                         || className.StartsWith("MsftEdit", StringComparison.OrdinalIgnoreCase)
-                        || className.IndexOf("TextBox", StringComparison.OrdinalIgnoreCase) >= 0;
+                        || className.IndexOf("TextBox", StringComparison.OrdinalIgnoreCase) >= 0
+                        || className.IndexOf("Search", StringComparison.OrdinalIgnoreCase) >= 0
+                        || className.IndexOf("Scintilla", StringComparison.OrdinalIgnoreCase) >= 0;
 
                     if (isEditClass && GetWindowRect(gti.hwndFocus, out RECT focusRect))
                     {
