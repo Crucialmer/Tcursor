@@ -192,11 +192,12 @@ internal sealed class CaptureChain : IDisposable
         return parts;
     }
 
-    /// <summary>清空缓存（配置变更时调用；换新实例，避免与工作线程并发访问同一字典）</summary>
+    /// <summary>清空缓存并通知后端自愈（系统锁屏解锁/睡眠恢复/配置变更时调用）</summary>
     public void Reset()
     {
         _lastGood = new Dictionary<uint, string>();
         _backoff = new Dictionary<uint, Dictionary<string, Backoff>>();
+        _uia.Invalidate();
     }
 
     /// <summary>

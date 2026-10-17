@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
@@ -126,14 +127,14 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 found = CaptureCore(_automation, request.Hwnd, out rect);
                 _consecutiveErrors = 0;   // 无异常完成（含“未命中”）：连接健康
             }
-            catch
+            catch (Exception ex)
             {
                 // 目标繁忙/元素失效等：按失败处理。
-                // 但持续的连续异常意味着自动化连接本身可能已劣化（COM 断开等）——重建后重试；
-                // 否则 UIA 捕获会一直失败到进程重启（长时运行后浏览器类窗口不再出现符号的修复点）。
-                if (++_consecutiveErrors >= RecycleAfterErrors)
+                // 但持续的连续异常或致命 COM 异常意味着自动化连接本身已断开/劣化（RPC 崩溃/句柄断开等）——立即重建！
+                _consecutiveErrors++;
+                if (IsFatalComException(ex) || _consecutiveErrors >= RecycleAfterErrors)
                 {
-                    Core.Log.Error($"UIA 自动化连接连续异常 {_consecutiveErrors} 次：已重建");
+                    Core.Log.Error($"UIA 自动化连接劣化（{ex.GetType().Name}: 0x{ex.HResult:X8}，连续 {_consecutiveErrors} 次）：已重建");
                     RecycleAutomation();
                 }
             }
@@ -179,6 +180,37 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         _automation = null;
     }
 
+    /// <summary>外部请求自愈/重建自动化连接（如系统锁屏解锁/睡眠唤醒后）</summary>
+    internal void Invalidate()
+    {
+        lock (_gate)
+        {
+            _consecutiveErrors = RecycleAfterErrors;
+        }
+    }
+
+    private static bool IsFatalComException(Exception ex)
+    {
+        if (ex is InvalidComObjectException)
+            return true;
+        if (ex is COMException comEx)
+        {
+            uint hr = (uint)comEx.HResult;
+            // 典型 COM 断开/不可用/死锁错误码：
+            // 0x80010108: RPC_E_DISCONNECTED (对象已与其客户端断开连接)
+            // 0x800401FD: CO_E_OBJNOTCONNECTED (对象未连接到服务器)
+            // 0x800706BA: RPC_S_SERVER_UNAVAILABLE (RPC 服务器不可用)
+            // 0x800706BE: RPC_E_CALL_FAILED (远程过程调用失败)
+            // 0x800706BF: RPC_E_SERVER_DIED (RPC 服务器在调用期间终止)
+            // 0x80010105: RPC_E_SERVERFAULT (服务器引发了意外异常)
+            // 0x80010001: RPC_E_CALL_REJECTED (调用被被调用方拒绝)
+            return hr == 0x80010108 || hr == 0x800401FD || hr == 0x800706BA ||
+                   hr == 0x800706BE || hr == 0x800706BF || hr == 0x80010105 ||
+                   hr == 0x80010001;
+        }
+        return false;
+    }
+
     private static bool CaptureCore(UIA3Automation automation, IntPtr hwnd, out CaretRect caret)
     {
         caret = default;
@@ -210,9 +242,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     return true;
             }
         }
-        catch
+        catch (Exception ex) when (!IsFatalComException(ex))
         {
-            // 忽略跨进程 UIPI 或焦点获取异常
+            // 忽略跨进程 UIPI 或焦点获取常规异常，致命 COM 异常向上抛出以触发自愈重建
         }
 
         // 步骤 2：直接检查目标窗口根元素（部分简易窗口根元素自身即承载 TextPattern）
@@ -223,9 +255,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (element is not null && TryElementCaret(element, out caret, isFocusedElement: false))
                 return true;
         }
-        catch
+        catch (Exception ex) when (!IsFatalComException(ex))
         {
-            // 忽略句柄获取异常
+            // 忽略常规句柄获取异常，致命 COM 异常向上抛出以触发自愈重建
         }
 
         // 步骤 3：退化回退（仅当 FocusedElement 未能命中时，针对非标准窗口在窗口子树内查找焦点控件）
@@ -233,18 +265,12 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             try
             {
-                var edits = element.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
-                if (edits is { Length: > 0 })
-                {
-                    // 仅检查当前明确拥有键盘焦点的编辑控件（杜绝文件管理器未激活的地址栏/搜索框等被误判为光标）
-                    foreach (var edit in edits)
-                    {
-                        if (edit.Properties.HasKeyboardFocus.ValueOrDefault && TryElementCaret(edit, out caret, isFocusedElement: true))
-                            return true;
-                    }
-                }
+                // 仅寻找当前明确拥有键盘焦点的单项 Edit 控件，绝不可使用 FindAllDescendants 遍历全树（会卡死 Chromium/微信/VSCode 数秒）
+                var edit = element.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit).And(new FlaUI.Core.Conditions.PropertyCondition(automation.PropertyLibrary.Element.HasKeyboardFocus, true)));
+                if (edit is not null && TryElementCaret(edit, out caret, isFocusedElement: true))
+                    return true;
             }
-            catch
+            catch (Exception ex) when (!IsFatalComException(ex))
             {
                 // 忽略跨进程 UIPI 或子树查找异常
             }
@@ -334,7 +360,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 return true;
             }
         }
-        catch
+        catch (Exception ex) when (!IsFatalComException(ex))
         {
             // 元素失效/模式不可用：按未命中处理
         }

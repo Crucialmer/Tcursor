@@ -111,7 +111,9 @@ internal sealed class ForegroundReader
 
         if (_processNames.Count >= ProcNameCacheMax)
             _processNames.Clear();
-        _processNames[pid] = (name, now);
+        // 成功读取的进程名缓存 30 秒；空名（启动过渡/权限阻断）仅缓存 500ms，保证快速自愈重试
+        long cachedTick = name.Length > 0 ? now : now - ProcNameCacheTtlMs + 500;
+        _processNames[pid] = (name, cachedTick);
         return name;
     }
 }

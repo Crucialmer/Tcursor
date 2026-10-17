@@ -14,6 +14,11 @@ internal static class SysInfo
         var lii = new LASTINPUTINFO { cbSize = (uint)LiiSize };
         if (!GetLastInputInfo(ref lii))
             return 0;
-        return unchecked((uint)Environment.TickCount - lii.dwTime);
+        uint now = (uint)Environment.TickCount64;
+        uint diff = unchecked(now - lii.dwTime);
+        // 若因 QPC / User32 时钟微小抖动出现 diff 超过 int.MaxValue（相当于负差值），视为 0ms 空闲（刚输入）
+        if ((int)diff < 0)
+            return 0;
+        return diff;
     }
 }

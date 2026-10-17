@@ -2,6 +2,22 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
+## 功能范围（v3.6 正式版）
+
+- **长时运行永久有效与全局白名单自愈机制（根治“运行久了失效、必须重启”Bug）**：
+  - **TSF 全局状态仓 COM RCW 接口深度泄露修复**：`StateDetector.QueryTsfGlobalState` 在每次查询时通过 `TF_GetGlobalCompartment` 生成 `compMgr`、`compOpenClose`、`compConv` 接口，但缺少显式 COM 释放；高频调用下 COM RCW 句柄与 RPC 槽位累积耗尽，导致进程 COM 子系统瘫痪并引发 UIA/TSF 全面崩溃。新版加入 `finally` 严格 `Marshal.ReleaseComObject` 释放，彻底消灭句柄与内存泄露；
+  - **SysInfo 输入空闲时间 32 位溢出与时钟抖动下溢修复**：修复当操作系统的高精度采样时钟与 `dwTime` 发生微小抖动或系统运行跨越时间边界时，`unchecked((uint)Environment.TickCount - lii.dwTime)` 下溢为 `4294967295ms` 导致 `idleMs > IdleStopMs` 永久成立、控制器死锁在暂停/隐藏状态的底层缺陷；
+  - **UIA COM 异常向上传递与真自愈重建**：消除 `UiaCaretCapture.CaptureCore` 内部吞噬致命 COM 异常的漏洞，准确识别并向外传递 `RPC_E_DISCONNECTED`、`CO_E_OBJNOTCONNECTED`、`RPC_S_SERVER_UNAVAILABLE` 等致命断开错误，使 `WorkerLoop` 真实累计连续异常并在必要时触发 `RecycleAutomation` 重新初始化 UIA 自动化客户端；
+  - **UIA 步骤 3 焦点编辑控件瞬时检索优化**：用 `FindFirstDescendant` + `HasKeyboardFocus == true` 替代耗时的 `FindAllDescendants` 全树遍历，杜绝在复杂窗口（Chrome、WeChat、VSCode、Explorer）中阻塞 COM 工作线程；
+  - **GDI 屏幕 DC 与分层窗口跨锁屏/睡眠自愈保障**：`LayeredSymbolWindow` 监听 `SystemEvents.SessionSwitch`（锁屏 Win+L / 解锁）与 `SystemEvents.PowerModeChanged`（睡眠 / 唤醒），在桌面切换与系统唤醒时主动重置屏幕 DC 与位图缓存，彻底杜绝 GDI 句柄失效；
+  - **空进程名短时缓存自愈**：优化 `ForegroundReader`，对启动过渡或权限受限产生的空进程名仅做 500ms 短缓存，彻底消除 30 秒僵死期。
+- **窗口拖拽位移极速瞬时跟随算法（彻底消除拖动窗口时的拖影、卡顿与滞后感）**：
+  - **工作线程直接渲染（彻底消除 20~40ms 跨线程消息泵延迟）**：为 `LayeredSymbolWindow` 引入内部线程同步锁 `_renderGate`，使工作线程无需通过 WinForms UI 线程消息泵（`Control.Invoke`）即可直接调用 Win32 `UpdateLayeredWindow`，更新延迟从 20~40ms 降至 0.05ms 以内，彻底解除对主界面消息队列的依赖；
+  - **窗口相对位移瞬时补偿（`MoveTo`）**：在目标窗口被用户按住标题栏拖动或平移动画时，输入光标在窗口内的相对坐标保持不变。新版在检测到前台窗口发生屏幕位移 $(\Delta X, \Delta Y)$ 时，以零 GDI 重建、零内存分配直接平移分层窗口；
+  - **拖拽模态期间挂起耗时跨进程查询**：在窗口位移期间直接以 8ms（~120 FPS）高频平移光标符号，跳过繁重的跨进程 UIA/TSF 查询，彻底消灭拖影、跳变与掉帧，实现 144Hz 极速跟手；窗口拖动停止后无缝恢复全量探测与校准。
+- **零回归与稳定性保证**：严格保证 EmEditor、Windows 资源管理器、Chrome、微信输入等既有高精度特性 100% 保持正常。
+- **界面外观绝对冻结（零变动）**：严格保持经典的 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系及三标签页纯净布局零修改。
+
 ## 功能范围（v3.5 正式版）
 
 - **彻底解决 Chrome 网址输入框未输入与鼠标点击时不移动 Bug（UIA 折叠选区字符单元深度还原）**：

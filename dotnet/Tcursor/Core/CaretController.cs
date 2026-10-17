@@ -54,6 +54,11 @@ internal sealed class CaretController : IDisposable
     private long _lastCaptureOkAt;
     private long _lastVisibleCheckAt;
 
+    // 窗口移动与拖拽平滑跟随（彻底消灭拖拽卡顿与拖影）
+    private IntPtr _lastTargetHwnd;
+    private RECT _lastWindowRect;
+    private long _lastWindowMoveTick;
+
     // 状态位图预渲染池（每种状态 + 当前 DPI 缩放只渲染一次并缓存，中英/大小写切换时零 GC 分配零延迟）
     private readonly Dictionary<InputState, (SymbolStyle Style, Bitmap Bitmap)> _stateBitmaps = new();
     private int _cachedCornerPreference = -1;
@@ -70,6 +75,14 @@ internal sealed class CaretController : IDisposable
             Name = "Tcursor.Worker",
         };
         RebuildRules(config);
+
+        // 监听系统会话切换与电源事件（锁屏解锁/睡眠恢复自动自愈）
+        try
+        {
+            Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        }
+        catch { }
     }
 
     public void Start() => _worker.Start();
@@ -136,9 +149,10 @@ internal sealed class CaretController : IDisposable
 
             uint idleMs = SysInfo.GetIdleMs();   // 每轮只取一次（Tick 复用，避免同值双算）
             bool idle = idleMs > (uint)Math.Max(0, config.IdleStopMs);
+            bool isMoving = Environment.TickCount64 - _lastWindowMoveTick < 150;
             int waitMs = idle
                 ? IdleWaitMs
-                : _shown ? Math.Max(5, config.PollIntervalMs) : HiddenWaitMs;
+                : isMoving ? 8 : (_shown ? Math.Max(5, config.PollIntervalMs) : HiddenWaitMs);
 
             bool signaled;
             try
@@ -192,6 +206,7 @@ internal sealed class CaretController : IDisposable
         if (win.Hwnd == IntPtr.Zero || win.Pid == 0 || win.Pid == (uint)_ownPid || win.Process.Length == 0)
         {
             HideSymbol();
+            _lastTargetHwnd = IntPtr.Zero;
             return;
         }
 
@@ -199,7 +214,33 @@ internal sealed class CaretController : IDisposable
         if (rule is null)
         {
             HideSymbol();
+            _lastTargetHwnd = IntPtr.Zero;
             return;
+        }
+
+        // 窗口移动/拖动极速瞬时跟随（144Hz 极速跟手、零延迟、零拖影）：
+        // 当用户按住标题栏拖动窗口或窗口正在平移动画时，输入光标在窗口内的相对坐标恒定不变。
+        // 检测到窗口位移时，瞬时平移光标符号（直接在工作线程调用 UpdateLayeredWindow），
+        // 且在拖动期间挂起耗时的跨进程 UIA/TSF 查询，彻底杜绝丢帧、卡顿与拖影！
+        if (GetWindowRect(win.Hwnd, out RECT currentWinRect))
+        {
+            if (_lastTargetHwnd == win.Hwnd && _shown)
+            {
+                int dx = currentWinRect.Left - _lastWindowRect.Left;
+                int dy = currentWinRect.Top - _lastWindowRect.Top;
+                if (dx != 0 || dy != 0)
+                {
+                    int newX = _lastPos.X + dx;
+                    int newY = _lastPos.Y + dy;
+                    _lastPos = new Point(newX, newY);
+                    _lastWindowRect = currentWinRect;
+                    _lastWindowMoveTick = Environment.TickCount64;
+                    _window.MoveTo(newX, newY);
+                    return; // 瞬时跟随完成，跳过后续耗时 UIA 查询，保持 120 FPS 极速跟手
+                }
+            }
+            _lastTargetHwnd = win.Hwnd;
+            _lastWindowRect = currentWinRect;
         }
 
         string chainSpec = rule.CaptureChain.Length > 0 ? rule.CaptureChain : config.DefaultCaptureChain;
@@ -343,11 +384,11 @@ internal sealed class CaretController : IDisposable
         bool moved = x != _lastPos.X || y != _lastPos.Y;
 
         // 周期性核对符号窗口真实可见态（约每 2s）：外部最小化/“显示桌面”/句柄重建等会让内部标志
-        // 与真实状态失联——此前表现为“跑久了所有应用都不再显示、需重启”，发现失联即强制走重新显示路径
+        // 与真实状态失联——发现失联即强制走重新显示路径
         if (_shown && Environment.TickCount64 - _lastVisibleCheckAt >= 2000)
         {
             _lastVisibleCheckAt = Environment.TickCount64;
-            if (!InvokeOnUi(() => _window.IsActuallyVisible()))
+            if (!_window.IsActuallyVisible())
                 _shown = false;
         }
 
@@ -389,7 +430,12 @@ internal sealed class CaretController : IDisposable
 
     private void ShowAt(Bitmap bitmap, int x, int y)
     {
-        _shown = InvokeOnUi(() => _window.ShowBitmap(bitmap, x, y));
+        if (_shuttingDown || _window.IsDisposed)
+        {
+            _shown = false;
+            return;
+        }
+        _shown = _window.ShowBitmap(bitmap, x, y);
     }
 
     private void HideSymbol()
@@ -397,28 +443,37 @@ internal sealed class CaretController : IDisposable
         if (!_shown)
             return;
         _shown = false;
-        InvokeOnUi(() =>
+        _lastTargetHwnd = IntPtr.Zero;
+        if (!_shuttingDown && !_window.IsDisposed)
         {
             _window.HideSymbol();
-            return true;
-        });
+        }
     }
 
-    /// <summary>在 UI 线程执行；返回动作结果（窗口已销毁/调用失败返回 false）</summary>
-    private bool InvokeOnUi(Func<bool> action)
+    /// <summary>重置状态机与缓存（锁屏解锁/睡眠恢复/配置变更时自愈）</summary>
+    public void ResetState()
     {
-        if (_shuttingDown || _window.IsDisposed || !_window.IsHandleCreated)
-            return false;
-        try
-        {
-            return _window.InvokeRequired ? (bool)_window.Invoke(action)! : action();
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex);
-            return false;
-        }
+        _clearCacheRequested = true;
+        _chain.Reset();
+        _lastTargetHwnd = IntPtr.Zero;
+        _lastPos = new Point(int.MinValue, int.MinValue);
+        _lastState = null;
+        _shown = false;
+        _window.ResetGdi();
+        Wake();
     }
+
+    private void OnSessionSwitch(object? sender, Microsoft.Win32.SessionSwitchEventArgs e)
+    {
+        ResetState();
+    }
+
+    private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        ResetState();
+    }
+
+
 
     // ---------------- 规则匹配 ----------------
 
@@ -477,8 +532,13 @@ internal sealed class CaretController : IDisposable
 
     public void Dispose()
     {
-        // 退出顺序：先置「正在关闭」——工作线程此后不再向界面线程投递（否则界面线程已离开消息循环时，
-        // 工作线程会阻塞在 Invoke 上直到 Join 超时，退出必然多等一整个超时）
+        try
+        {
+            Microsoft.Win32.SystemEvents.SessionSwitch -= OnSessionSwitch;
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        }
+        catch { }
+
         _shuttingDown = true;
         _quit = true;
         Wake();

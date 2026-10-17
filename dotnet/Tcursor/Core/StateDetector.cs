@@ -178,15 +178,18 @@ internal static class StateDetector
     /// </summary>
     private static bool? QueryTsfGlobalState()
     {
+        ITfCompartmentMgr? compMgr = null;
+        ITfCompartment? compOpenClose = null;
+        ITfCompartment? compConv = null;
         try
         {
-            if (TF_GetGlobalCompartment(out ITfCompartmentMgr compMgr) != 0 || compMgr is null)
+            if (TF_GetGlobalCompartment(out compMgr) != 0 || compMgr is null)
                 return null;
 
             // 1. 读取 KEYBOARD_OPENCLOSE 仓（开启 vs 关闭）
             Guid guidOpenClose = GuidCompartmentKeyboardOpenClose;
             int? valOpen = null;
-            if (compMgr.GetCompartment(ref guidOpenClose, out ITfCompartment compOpenClose) == 0 && compOpenClose is not null)
+            if (compMgr.GetCompartment(ref guidOpenClose, out compOpenClose) == 0 && compOpenClose is not null)
             {
                 valOpen = ReadCompartmentInt(compOpenClose);
             }
@@ -194,7 +197,7 @@ internal static class StateDetector
             // 2. 读取 KEYBOARD_INPUTMODE_CONVERSION 仓（转换模式）
             Guid guidConversion = GuidCompartmentKeyboardConversion;
             int? valConv = null;
-            if (compMgr.GetCompartment(ref guidConversion, out ITfCompartment compConv) == 0 && compConv is not null)
+            if (compMgr.GetCompartment(ref guidConversion, out compConv) == 0 && compConv is not null)
             {
                 valConv = ReadCompartmentInt(compConv);
             }
@@ -210,8 +213,23 @@ internal static class StateDetector
         catch
         {
             // 忽略 COM 互操作异常
+            return null;
         }
-        return null;
+        finally
+        {
+            if (compConv is not null)
+            {
+                try { Marshal.ReleaseComObject(compConv); } catch { }
+            }
+            if (compOpenClose is not null)
+            {
+                try { Marshal.ReleaseComObject(compOpenClose); } catch { }
+            }
+            if (compMgr is not null)
+            {
+                try { Marshal.ReleaseComObject(compMgr); } catch { }
+            }
+        }
     }
 
     private static int? ReadCompartmentInt(ITfCompartment comp)
