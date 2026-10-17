@@ -233,8 +233,8 @@ internal sealed class CaptureChain : IDisposable
                         {
                             int padX = Math.Min(8, Math.Max(4, w / 16));
                             int padY = Math.Min(4, Math.Max(2, (h - 20) / 2));
-                            // 多行控件只取首行高度 20px，单行框（<=36px）贴合内部
-                            int caretH = h <= 36 ? Math.Min(20, Math.Max(12, h - padY * 2)) : 20;
+                            // 多行控件只取首行高度 16px，单行框（<=36px）贴合内部
+                            int caretH = h <= 36 ? Math.Min(16, Math.Max(12, h - padY * 2)) : 16;
                             rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
                             return true;
                         }

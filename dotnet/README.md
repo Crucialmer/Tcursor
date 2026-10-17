@@ -2,6 +2,17 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
+## 功能范围（v3.3 正式版）
+
+- **彻底修复 Chrome 网页未入输入框误弹提示与输入时光标不动 Bug**：
+  - **根除 Chromium 页面根文档伪光标与整页输入框假判（核心根因）**：在 Chrome 中，当用户未激活输入框或浏览普通网页时，全局键盘焦点元素往往为网页根文档（`ControlType.Document`）。此前在 v3.1 将 `ControlType.Document` 引入 `IsEditableControl` 后，导致 `TryElementCaret` 在跳过 `IsChromiumPageRoot` 选区逻辑后，直接走入 `else if (IsEditableControl)`，将整页根文档（1920×1080）当作可编辑输入框执行几何推算，从而在网页左上角生成固定假光标（`bounds.Left + 6, bounds.Top + 4`），造成“没点输入框也出现符号”且输入时“符号固定在左上角不动”；
+  - **UIA 元素入口级 Chromium 根文档绝对拦截**：在 `UiaCaretCapture.TryElementCaret` 入口处执行 `IsChromiumPageRoot` 绝对拦截，任何属于 Chromium 渲染宿主（`Chrome_RenderWidgetHostHWND`）及其层级下的页面根文档直接返回 `false`，坚决禁止其进入选区退化与控件几何推算；
+  - **严格限定仅 Edit 控件参与几何边界兜底**：恢复 `IsEditableControl` 严格语义（仅限 `ControlType.Edit`），彻底杜绝浏览器整页背景、PDF 查看器或静态文档被伪造为输入控件；
+- **彻底消除微信聊天框提示符号偏下（文本基准对齐）**：
+  - **聊天应用 14px 紧凑基准行高锚定**：微信等即时通讯工具默认聊天字号为 10.5pt（14px 微软雅黑），此前统一的 22px 归一化行高导致符号距离文本底端仍有约 8px 的悬空感（视觉偏下）。新版在 `CaretController` 中针对聊天应用专门设定为 `14px * scale` 基准行高，并增加类名与标题全维度判别，提示符号瞬间贴紧文字基线，彻底根除悬空感；
+- **其他所有软件高精度定位零回归**：严格保持 EmEditor、Windows 资源管理器、Edge/Chrome 网页正常输入框、记事本等软件的高精度实时跟随与定位；
+- **界面外观绝对冻结（零变动）**：严格保持经典的 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系与三标签页纯净布局不变。
+
 ## 功能范围（v3.2 正式版）
 
 - **彻底修复微信聊天框光标符号定位偏下与坐标不准 Bug**：

@@ -282,16 +282,20 @@ internal sealed class CaretController : IDisposable
         // 微信等即时通讯软件（WeChat/Weixin/QQ 等）输入框恒为单行文本基准行高，绝不被多行容器高度带偏。
         // 仅在非聊天应用且处于大字号排版（> 44px * scale，如大标题）时才尊重真实底部。
         int caretH = Math.Max(1, caret.Bottom - caret.Top);
-        int targetLineH = (int)Math.Round(22 * scale);
+        bool isChatApp = win.Process.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Process.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Class.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Class.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Title.Contains("微信") ||
+                         win.Process.IndexOf("QQ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Process.IndexOf("DingTalk", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Process.IndexOf("Feishu", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Process.IndexOf("Lark", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // 聊天应用（微信/QQ/钉钉等）使用 14px*scale 标准聊天字号基准，彻底消灭 22px 带来的下沉悬空；
+        // 现代文本编辑器与通用窗口（Notepad、Chrome、EmEditor、资源管理器等）维持 22px*scale 统一行高
+        int targetLineH = (int)Math.Round((isChatApp ? 14 : 22) * scale);
         int maxUiLineH = (int)Math.Round(44 * scale);
-        bool isChatApp = win.Process.Equals("WeChat", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("Weixin", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("WeChatAppEx", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("WeixinExt", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("QQ", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("DingTalk", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("Feishu", StringComparison.OrdinalIgnoreCase) ||
-                         win.Process.Equals("Lark", StringComparison.OrdinalIgnoreCase);
 
         int effectiveBottom;
         if (isChatApp || caretH <= maxUiLineH)

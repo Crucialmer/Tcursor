@@ -254,8 +254,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
     private static bool IsEditableControl(AutomationElement element)
     {
-        var ct = element.ControlType;
-        return ct == ControlType.Edit || ct == ControlType.Document;
+        return element.ControlType == ControlType.Edit;
     }
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
@@ -265,6 +264,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         caret = default;
         try
         {
+            // Chromium 页面根文档拦截：Chromium 页面根文档为整页展示背景，绝不能视作光标或可编辑控件
+            if (IsChromiumPageRoot(element))
+                return false;
+
             var text2 = element.Patterns.Text2.PatternOrDefault;
             if (text2 is not null)
             {
@@ -278,7 +281,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             }
 
             var text = element.Patterns.Text.PatternOrDefault;
-            if (text is not null && !IsChromiumPageRoot(element))
+            if (text is not null)
             {
                 ITextRange[] selection = text.GetSelection();
                 if (selection is { Length: > 0 })
@@ -377,10 +380,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
                 int padY = Math.Min(4, (int)bounds.Height / 4);
                 // 紧凑单行框（<=36px）贴合控件高度；多行输入框（如微信聊天框、Notepad、高度 > 36px）
-                // 首行光标只占标准单行高度（20px），绝不能将整个多行区域（100~200px）算作光标高度（杜绝微信偏下）
+                // 首行光标只占标准单行高度（16px），绝不能将整个多行区域（100~200px）算作光标高度（杜绝微信偏下）
                 int caretHeight = bounds.Height <= 36
                     ? Math.Max(12, (int)bounds.Height - padY * 2)
-                    : 20;
+                    : 16;
 
                 int left = (int)bounds.Left + padX;
                 int top = (int)bounds.Top + padY;
@@ -417,6 +420,11 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             if (element.ControlType != ControlType.Document)
                 return false;
+            string selfCls = element.ClassName ?? "";
+            if (selfCls.StartsWith("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal)
+                || selfCls.StartsWith("Chrome_WidgetWin_", StringComparison.Ordinal))
+                return true;
+
             AutomationElement? current = element.Parent;
             for (int depth = 0; current is not null && depth < 9; depth++)
             {
