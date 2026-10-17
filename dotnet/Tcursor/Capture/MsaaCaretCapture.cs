@@ -22,17 +22,26 @@ internal sealed class MsaaCaretCapture : ICaretCapture
             Guid iid = IID_IAccessible;
             int hr = AccessibleObjectFromWindow(hwnd, OBJID_CARET, ref iid, out acc);
             if (hr != 0 || acc is null)
+            {
+                // 尝试从当前前台线程的键盘焦点子控件提取（针对 Chrome 等顶层窗口包含子渲染/视图宿主）
+                var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+                if (GetGUIThreadInfo(0, ref gti) && gti.hwndFocus != IntPtr.Zero && gti.hwndFocus != hwnd)
+                {
+                    hr = AccessibleObjectFromWindow(gti.hwndFocus, OBJID_CARET, ref iid, out acc);
+                }
+            }
+            if (hr != 0 || acc is null)
                 return false;
 
             dynamic d = acc;
             d.accLocation(out int left, out int top, out int width, out int height, 0);
-            // 严格有效性校验：真实光标必须具有正的高度与宽度；
-            // 当窗口无光标时，OBJID_CARET 的 accLocation 会返回 (0,0,0,0) 或假尺寸，必须判定为未命中；
-            // 绝不能将 (0,0) 假坐标扩充为 (0,0,1,1)，否则会导致捕获链缓存受损并引发全局光标提示失效
-            if (width <= 0 || height <= 0 || (left == 0 && top == 0 && width <= 1 && height <= 1))
+            // 严格有效性校验：真实光标必须具有正的高度；宽度可为 0（如垂直单线光标）或正数；
+            // 当窗口无光标时，OBJID_CARET 的 accLocation 会返回 (0,0,0,0) 或假尺寸，必须判定为未命中
+            if (width < 0 || height <= 0 || (left == 0 && top == 0 && width <= 1 && height <= 1))
                 return false;
 
-            caret = new CaretRect(left, top, left + width, top + height);
+            int w = width <= 0 ? 1 : width;
+            caret = new CaretRect(left, top, left + w, top + height);
             return true;
         }
         catch

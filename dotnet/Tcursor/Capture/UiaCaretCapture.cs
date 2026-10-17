@@ -238,7 +238,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     belongs = hwndPid != 0 && focusedPid == (int)hwndPid;
                 }
 
-                if (belongs && TryElementCaret(focused, out caret, isFocusedElement: true))
+                if (belongs && TryElementCaret(focused, hwnd, out caret, isFocusedElement: true))
                     return true;
             }
         }
@@ -252,7 +252,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         try
         {
             element = automation.FromHandle(hwnd);
-            if (element is not null && TryElementCaret(element, out caret, isFocusedElement: false))
+            if (element is not null && TryElementCaret(element, hwnd, out caret, isFocusedElement: false))
                 return true;
         }
         catch (Exception ex) when (!IsFatalComException(ex))
@@ -267,7 +267,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             {
                 // 仅寻找当前明确拥有键盘焦点的单项 Edit 控件，绝不可使用 FindAllDescendants 遍历全树（会卡死 Chromium/微信/VSCode 数秒）
                 var edit = element.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit).And(new FlaUI.Core.Conditions.PropertyCondition(automation.PropertyLibrary.Element.HasKeyboardFocus, true)));
-                if (edit is not null && TryElementCaret(edit, out caret, isFocusedElement: true))
+                if (edit is not null && TryElementCaret(edit, hwnd, out caret, isFocusedElement: true))
                     return true;
             }
             catch (Exception ex) when (!IsFatalComException(ex))
@@ -286,7 +286,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
     /// （含 Chromium/WPF 扩展字符单元、WPF 相邻字符推算、鼠标点击拾取，失败时按输入控件边界推算）。</summary>
-    private static bool TryElementCaret(AutomationElement element, out CaretRect caret, bool isFocusedElement = false)
+    private static bool TryElementCaret(AutomationElement element, IntPtr topHwnd, out CaretRect caret, bool isFocusedElement = false)
     {
         caret = default;
         try
@@ -339,7 +339,12 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                             return true;
                     }
 
-                    // 尝试通过鼠标坐标辅助拾取点击处字符
+                    // Chromium Views 专用：对于 Chrome 网址输入框（OmniboxViewViews）等控件，
+                    // 折叠选区自身不返回字符几何矩形，优先借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取绝对精确的光标物理矩形！
+                    if (TryMsaaCaret(element, topHwnd, out caret))
+                        return true;
+
+                    // 尝试通过鼠标坐标辅助拾取点击处字符（支持 Chromium Views 鼠标点击即时跟随）
                     if (TryCaretFromMousePoint(element, text, out caret))
                         return true;
 
@@ -349,15 +354,20 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else
                 {
+                    if (TryMsaaCaret(element, topHwnd, out caret))
+                        return true;
                     if (TryCaretFromMousePoint(element, text, out caret))
                         return true;
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
             }
-            else if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+            else if (IsEditableControl(element))
             {
-                return true;
+                if (TryMsaaCaret(element, topHwnd, out caret))
+                    return true;
+                if (TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                    return true;
             }
         }
         catch (Exception ex) when (!IsFatalComException(ex))
@@ -423,43 +433,49 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     catch { }
                 }
 
+                bool isWeb = IsWebElement(edit);
                 bool isSearchOrAddress = false;
-                if (name.Contains("搜索", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("地址", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Address", StringComparison.OrdinalIgnoreCase) ||
-                    className.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
-                    className.Contains("Breadcrumb", StringComparison.OrdinalIgnoreCase) ||
-                    className.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
-                    autoId.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
-                    autoId.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
-                    autoId.Contains("Address", StringComparison.OrdinalIgnoreCase))
+                if (!isWeb)
                 {
-                    isSearchOrAddress = true;
+                    // 仅针对真正的桌面顶层地址栏/搜索框（Chrome 网址栏 OmniboxViewViews、文件管理器地址栏/面包屑等）
+                    if (className.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                        className.Contains("Breadcrumb", StringComparison.OrdinalIgnoreCase) ||
+                        autoId.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                        autoId.Contains("AddressBandRoot", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("地址和搜索栏", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Address and search bar", StringComparison.OrdinalIgnoreCase) ||
+                        (className.Contains("Edit", StringComparison.OrdinalIgnoreCase) && name.Contains("地址", StringComparison.OrdinalIgnoreCase)) ||
+                        (className.Contains("Edit", StringComparison.OrdinalIgnoreCase) && name.Contains("Address", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        isSearchOrAddress = true;
+                    }
                 }
 
                 // 探测左侧图标/子元素（如文件管理器搜索框左侧的 🔍 放大镜图标或地址栏下拉图标，避开图标区域）
                 int detectedIconRight = 0;
-                try
+                if (!isWeb)
                 {
-                    var children = edit.FindAllChildren();
-                    if (children is { Length: > 0 })
+                    try
                     {
-                        foreach (var child in children)
+                        var children = edit.FindAllChildren();
+                        if (children is { Length: > 0 })
                         {
-                            var cb = child.BoundingRectangle;
-                            if (cb.Width > 0 && cb.Left >= bounds.Left && cb.Right <= bounds.Left + 80 * scale)
+                            foreach (var child in children)
                             {
-                                if (child.ControlType == ControlType.Image || child.ControlType == ControlType.Button || child.ControlType == ControlType.Text)
+                                var cb = child.BoundingRectangle;
+                                if (cb.Width > 0 && cb.Left >= bounds.Left && cb.Right <= bounds.Left + 80 * scale)
                                 {
-                                    detectedIconRight = Math.Max(detectedIconRight, (int)(cb.Right - bounds.Left) + (int)Math.Round(4 * scale));
-                                    isSearchOrAddress = true;
+                                    if (child.ControlType == ControlType.Image || child.ControlType == ControlType.Button || child.ControlType == ControlType.Text)
+                                    {
+                                        detectedIconRight = Math.Max(detectedIconRight, (int)(cb.Right - bounds.Left) + (int)Math.Round(4 * scale));
+                                        isSearchOrAddress = true;
+                                    }
                                 }
                             }
                         }
                     }
+                    catch { }
                 }
-                catch { }
 
                 int padX;
                 int padY;
@@ -486,9 +502,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else if (bounds.Height <= Math.Round(54 * scale))
                 {
-                    // 现代网页普通单行输入框（Chrome input）/ 原生单行编辑框：
+                    // 现代网页普通单行输入框（Chrome input，含百度/Google等网页搜索框）/ 原生单行编辑框：
                     // 内边距 10px*scale，文字垂直居中排版，行高 18px*scale，彻底解决偏上与偏左
-                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round(10 * scale);
+                    padX = (int)Math.Round(10 * scale);
                     caretHeight = (int)Math.Round(18 * scale);
                     if (bounds.Height < caretHeight + 4)
                         caretHeight = Math.Max(12, (int)bounds.Height - 4);
@@ -506,6 +522,41 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 int top = (int)bounds.Top + padY;
                 caret = new CaretRect(left, top, left + 1, top + caretHeight);
                 return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// 判断 UIA 元素是否属于网页内部元素（渲染宿主 Chrome_RenderWidgetHostHWND 或 Document 之下的控件）。
+    /// 网页内部的 input 搜索框绝对不是桌面顶层地址栏，严禁套用 38px 网址栏左留白。
+    /// </summary>
+    private static bool IsWebElement(AutomationElement element)
+    {
+        try
+        {
+            IntPtr elHwnd = (IntPtr)element.Properties.NativeWindowHandle.ValueOrDefault;
+            if (elHwnd != IntPtr.Zero)
+            {
+                var sb = new System.Text.StringBuilder(64);
+                if (Win32.NativeMethods.GetClassName(elHwnd, sb, sb.Capacity) > 0)
+                {
+                    string cls = sb.ToString();
+                    if (cls.IndexOf("RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                }
+            }
+
+            AutomationElement? current = element;
+            for (int depth = 0; current is not null && depth < 8; depth++)
+            {
+                string cls = current.ClassName ?? "";
+                if (cls.IndexOf("RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+                if (current.ControlType == ControlType.Document)
+                    return true;
+                current = current.Parent;
             }
         }
         catch { }
@@ -724,6 +775,21 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                             return true;
                         if (TryCaretViaExpandUnit(ptRange, out caret))
                             return true;
+
+                        // 对于 Chromium Views（如 Chrome 网址栏）等不暴露单字符几何的控件，
+                        // 当 RangeFromPoint 成功命中（确认鼠标处于有效文本范围内）时，直接基于鼠标 X 坐标还原光标！
+                        double scale = GetDpiScaleFor(mousePt.X, mousePt.Y);
+                        int padX = (int)Math.Round(10 * scale);
+                        string className = "";
+                        try { className = element.Properties.ClassName.ValueOrDefault ?? ""; } catch { }
+                        if (className.Contains("Omnibox", StringComparison.OrdinalIgnoreCase))
+                            padX = (int)Math.Round(38 * scale);
+
+                        int caretHeight = Math.Min((int)Math.Round(18 * scale), Math.Max(12, (int)bounds.Height - 4));
+                        int caretTop = (int)bounds.Top + Math.Max(2, ((int)bounds.Height - caretHeight) / 2);
+                        int clampedX = Math.Clamp(mousePt.X, (int)bounds.Left + padX, Math.Max((int)bounds.Left + padX, (int)bounds.Right - (int)Math.Round(8 * scale)));
+                        caret = new CaretRect(clampedX, caretTop, clampedX + 1, caretTop + caretHeight);
+                        return true;
                     }
                 }
             }
@@ -732,6 +798,86 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
         }
         return false;
+    }
+
+    private static readonly Guid IID_IAccessible = new("618736E0-3C3D-11CF-810C-00AA00389B71");
+    private const uint OBJID_CARET = 0xFFFFFFF8;
+
+    /// <summary>
+    /// 从 MSAA OBJID_CARET 提取真实光标位置（完美解决 Chrome 网址栏 OmniboxViewViews 等
+    /// Views 控件在 UIA 下不暴露字符几何矩形、导致无法随鼠标点击移动的问题）。
+    /// Chromium 内部维护 AXSystemCaretWin，在网址栏或网页光标移动/点击时均实时更新物理坐标。
+    /// </summary>
+    private static bool TryMsaaCaret(AutomationElement element, IntPtr topHwnd, out CaretRect caret)
+    {
+        caret = default;
+        try
+        {
+            IntPtr elHwnd = IntPtr.Zero;
+            try { elHwnd = (IntPtr)element.Properties.NativeWindowHandle.ValueOrDefault; } catch { }
+
+            if (elHwnd != IntPtr.Zero && TryMsaaCaretHwnd(elHwnd, element, out caret))
+                return true;
+
+            if (topHwnd != IntPtr.Zero && topHwnd != elHwnd && TryMsaaCaretHwnd(topHwnd, element, out caret))
+                return true;
+
+            var gti = new Win32.NativeMethods.GUITHREADINFO { cbSize = Marshal.SizeOf<Win32.NativeMethods.GUITHREADINFO>() };
+            if (Win32.NativeMethods.GetGUIThreadInfo(0, ref gti) && gti.hwndFocus != IntPtr.Zero &&
+                gti.hwndFocus != elHwnd && gti.hwndFocus != topHwnd)
+            {
+                if (TryMsaaCaretHwnd(gti.hwndFocus, element, out caret))
+                    return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static bool TryMsaaCaretHwnd(IntPtr hwnd, AutomationElement element, out CaretRect caret)
+    {
+        caret = default;
+        object? acc = null;
+        try
+        {
+            Guid iid = IID_IAccessible;
+            int hr = Win32.NativeMethods.AccessibleObjectFromWindow(hwnd, OBJID_CARET, ref iid, out acc);
+            if (hr != 0 || acc is null)
+                return false;
+
+            dynamic d = acc;
+            d.accLocation(out int left, out int top, out int width, out int height, 0);
+            if (width < 0 || height <= 0 || (left == 0 && top == 0 && width <= 1 && height <= 1))
+                return false;
+
+            // 严格有效性校验：捕获到的光标坐标必须落在当前焦点输入框的屏幕包围盒内（允许 12px 容差）
+            var bounds = element.BoundingRectangle;
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                int cx = left;
+                int cy = top + height / 2;
+                if (cx < bounds.Left - 12 || cx > bounds.Right + 12 ||
+                    cy < bounds.Top - 12 || cy > bounds.Bottom + 12)
+                {
+                    return false;
+                }
+            }
+
+            int w = width <= 0 ? 1 : width;
+            caret = new CaretRect(left, top, left + w, top + height);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (acc is not null)
+            {
+                try { Marshal.ReleaseComObject(acc); } catch { }
+            }
+        }
     }
 
     private static double GetDpiScaleFor(int x, int y)

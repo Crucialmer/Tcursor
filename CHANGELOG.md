@@ -1,5 +1,18 @@
 # 更新日志（Tcursor）
 
+## v3.7（2026-10-17，正式版）
+
+- **彻底修复 Chrome 网页输入框未输入时原始位置偏右与误判 Bug（渲染宿主与原生壳层严格物理隔离）**：
+  - **深层技术根因**：主流中英文搜索引擎（百度 `baidu.com`、Google、Bing、淘宝、B站等）中，网页 `<input>` 搜索框的 HTML `name`、`placeholder` 或 `aria-label` 普遍包含“搜索”或“Search”字样。此前版本在 `TryCaretFromEditBounds` 中通过字符串包含判定 `isSearchOrAddress`，导致这些普通的网页 `<input>` 元素被误判为桌面顶层地址栏，被赋予了针对桌面浏览器网址栏专属的大留白（`38px * scale`）。高达 38~57px 的虚假左留白直接导致提示符号悬空在网页输入框正中央偏右，严重偏离了用户刚点击放入光标时的真实起始位置；
+  - **网页渲染宿主物理隔离算法（`IsWebElement`）**：引入 `IsWebElement` 判定机制，通过检查 UIA 元素所属的 HWND 以及向上递归 8 层的父级树是否包含 Chromium 渲染宿主窗口类（`Chrome_RenderWidgetHostHWND`）或 HTML `ControlType.Document` 容器。任何处于渲染宿主之内的控件均被严格确立为网页内部元素，坚决禁止其被误判为桌面原生地址栏（`isSearchOrAddress` 恒为 `false`）；
+  - **标准网页单行行高与垂直居中排版**：对于所有网页内部单行输入框，统一按真实 CSS 内边距（`10px * scale`）排版，并结合行高（`18px * scale`）执行纵向精准垂直居中（`padY = (bounds.Height - caretHeight) / 2`），使光标未输入/刚点击放入时的提示符号位置与首个输入字符的底边基线 100% 完美重合。
+- **彻底修复 Chrome 网址输入框（Omnibox）未输入时鼠标点击光标不移动 Bug（深度桥接 MSAA 活跃系统光标与鼠标智能拾取）**：
+  - **深层技术根因**：Chrome 网址栏（`OmniboxViewViews`）基于 Chromium 原生 Views 桌面控件框架开发。在 Windows UI Automation 规范下，Chromium Views 的平台节点委托器（`ViewsAXPlatformNodeDelegate`）未实现字符级边界测量接口（`GetInnerTextRangeBoundsRect`），导致对其 TextPattern 选区调用 `GetBoundingRectangles()` 时无论折叠光标还是单字符扩展单元恒返回空数组；此前逻辑因无法提取有效矩形，被迫强制退回 `TryCaretFromEditBounds` 并在整个前台焦点期间死锁在固定的静态初始坐标（`bounds.Left + 38 * scale`），导致无论用户在网址栏的 URL 内部点击任何位置，光标提示符号永远停留在最左侧不动；
+  - **Chromium 活跃系统光标（MSAA `OBJID_CARET`）深度桥接**：Chromium 内部为兼容 Windows 无障碍体系在顶层窗口（`Chrome_WidgetWin_1`）实现了 `AXSystemCaretWin` 系统光标桥接器。无论在网址栏中鼠标点击任意字符位置、键盘左右方向键移动光标，还是打字输入，Chromium 均会通过 `MoveCaretTo` 实时向 `OBJID_CARET` 投递绝对精准的物理屏幕坐标。新版在 UIA 获取折叠选区后优先调用 `TryMsaaCaret` 查询当前控件在当前前台顶层窗口与焦点子窗口中的活跃 MSAA 光标，直接获取像素级物理屏幕矩形，彻底攻克 Chromium Views 在 UIA 下不暴露字符几何的核心瓶颈；
+  - **鼠标点击位置辅助感知与即时合成（`TryCaretFromMousePoint`）**：当用户使用鼠标点击网址栏任意字符处时，若底层瞬态尚未完成无障碍事件分发，利用 `text.RangeFromPoint(mousePt)` 验证鼠标点击命中有效文本区域，并在控件包围盒内直接合成精准的鼠标点击物理坐标，确保 100% 随点随移、零延迟跟手。
+- **零回归与稳定性保证**：严格保证 EmEditor、Windows 资源管理器、微信聊天框、记事本等既有高精度特性 100% 保持正常。
+- **界面外观绝对冻结（零变动）**：严格保持 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系及三标签页纯净布局零修改。
+
 ## v3.6（2026-10-17，正式版）
 
 - **长时运行永久有效与全局白名单自愈机制（根治“运行久了失效、必须重启”Bug）**：
