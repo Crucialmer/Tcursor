@@ -20,7 +20,7 @@ namespace Tcursor.Capture;
 /// </summary>
 internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 {
-    private const int CallTimeoutMs = 150;
+    private const int CallTimeoutMs = 200;
     private const int RecycleAfterErrors = 8;   // 连续异常达到该次数：重建自动化连接（见 RecycleAutomation）
 
     private sealed class Request
@@ -29,6 +29,8 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         public readonly ManualResetEventSlim Done = new(false);
         public bool Found;
         public CaretRect Rect;
+        public readonly long CreatedAt = Environment.TickCount64;
+        public volatile bool Abandoned;
     }
 
     private readonly object _gate = new();
@@ -38,6 +40,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     private volatile bool _quit;
     private UIA3Automation? _automation;
     private int _consecutiveErrors;   // 仅 UIA 工作线程访问
+    private int _requestCount;        // 周期性轻量 GC 与代理回收计数
 
     public UiaCaretCapture()
     {
@@ -70,6 +73,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
         if (!request.Done.Wait(CallTimeoutMs))
         {
+            request.Abandoned = true;
             request.Done.Dispose();   // 超时也要释放（SetDone 已捕获 ObjectDisposedException，与晚到的 Set 竞争是安全的）
             return false;             // 超时：不再等待（晚到的结果会被丢弃）
         }
@@ -109,6 +113,13 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (request is null)
                 continue;
 
+            // 已被调用方放弃（超时）或排队过久：跳过已作废请求，彻底消除排队拥堵导致的级联超时
+            if (request.Abandoned || Environment.TickCount64 - request.CreatedAt >= CallTimeoutMs)
+            {
+                SetDone(request);
+                continue;
+            }
+
             // 已有更新的请求排队：作废本次（优先响应最新状态）
             lock (_gate)
             {
@@ -117,6 +128,15 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     SetDone(request);
                     continue;
                 }
+            }
+
+            // 周期性轻量回收：每 300 次调用触发一次 COM RCW 垃圾回收，
+            // 彻底防止长时运行后 Chromium 跨进程 COM 代理与句柄堆积导致 IPC 延迟恶化
+            _requestCount++;
+            if (_requestCount >= 300)
+            {
+                _requestCount = 0;
+                GC.Collect(1, GCCollectionMode.Optimized, false);
             }
 
             bool found = false;
@@ -242,7 +262,26 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     {
                         Win32.NativeMethods.GetWindowThreadProcessId(hwnd, out uint hwndPid);
                         int focusedPid = focused.Properties.ProcessId.ValueOrDefault;
-                        belongs = hwndPid != 0 && focusedPid == (int)hwndPid;
+                        if (hwndPid != 0 && focusedPid != 0)
+                        {
+                            if (focusedPid == (int)hwndPid)
+                            {
+                                belongs = true;
+                            }
+                            else
+                            {
+                                // Chromium 多进程架构：网页渲染宿主（Renderer 进程）与主浏览器窗口（Browser 进程）属于不同 PID。
+                                // 若两个进程同属 Chrome/Edge，且前台激活窗口确实是 hwnd，则确认归属！
+                                try
+                                {
+                                    string fgProc = System.Diagnostics.Process.GetProcessById((int)hwndPid).ProcessName;
+                                    string focusedProc = System.Diagnostics.Process.GetProcessById(focusedPid).ProcessName;
+                                    if (fgProc.Equals(focusedProc, StringComparison.OrdinalIgnoreCase))
+                                        belongs = true;
+                                }
+                                catch { }
+                            }
+                        }
                     }
 
                     if (belongs && TryElementCaret(focused, hwnd, out caret, isFocusedElement: true))
@@ -274,6 +313,14 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         }
 
         // 步骤 3：退化回退（仅当 FocusedElement 未能命中时，针对非标准窗口在窗口子树内查找焦点控件）
+        // 关键防护：严禁对 Chromium 顶层窗口执行 FindFirstDescendant 遍历全树（会卡死 Chromium 数百毫秒并抢夺地址栏）
+        var sb = new System.Text.StringBuilder(32);
+        if (Win32.NativeMethods.GetClassName(hwnd, sb, sb.Capacity) > 0 &&
+            sb.ToString().StartsWith("Chrome_WidgetWin", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         if (element is not null)
         {
             try
@@ -358,7 +405,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
                 if (isActive && range is not null && IsCollapsed(range))
                 {
-                    if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                    if (TryMsaaCaret(element, topHwnd, out caret))
                         return true;
                     if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
                         return true;
@@ -381,9 +428,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     // 界面不存在跳动的输入光标，坚决不显示提示符号，更绝不能跟随鼠标向前跑！
                     if (IsCollapsed(selRange))
                     {
-                        // Chrome 网址输入框（Omnibox）首选：直接通过 Chromium AXSystemCaretWin (MSAA OBJID_CARET)
+                        // 优先通过系统物理光标（Chromium AXSystemCaretWin / MSAA OBJID_CARET）
                         // 提取真实物理光标屏幕矩形（完美跟随任意点击与打字位置）
-                        if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                        if (TryMsaaCaret(element, topHwnd, out caret))
                             return true;
 
                         if (TryRectOf(selRange, out CaretRect selRect)
@@ -414,18 +461,18 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else
                 {
-                    // Chrome 网址输入框：即使选区尚未建立，只要输入框拥有焦点，优先尝试读取 Chromium 系统光标
-                    if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                    // 选区尚未建立或为空（例如刚聚焦尚未产生选区）：只要控件是可编辑状态，优先读取系统物理光标
+                    if (IsEditableControl(element) && TryMsaaCaret(element, topHwnd, out caret))
                         return true;
 
-                    // 选区为空（非输入编辑态）：仅当拥有焦点的可编辑输入框允许从控件几何推算
+                    // 仅当拥有焦点的可编辑输入框允许从控件几何推算
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
             }
-            else if (!isWeb && IsEditableControl(element))
+            else if (IsEditableControl(element))
             {
-                if (isAddressBar && TryMsaaCaret(element, topHwnd, out caret))
+                if (TryMsaaCaret(element, topHwnd, out caret))
                     return true;
                 if (TryCaretFromEditBounds(element, out caret, isFocusedElement))
                     return true;
@@ -511,6 +558,19 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         isSearchOrAddress = true;
                     }
                 }
+                else
+                {
+                    // 网页内部输入框：识别搜索类输入框或组合框（如 Google / 百度 / 必应等搜索栏，左侧带有 🔍 放大镜图标）
+                    if (className.Contains("search", StringComparison.OrdinalIgnoreCase) ||
+                        className.Contains("gLFyf", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("搜索", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                        autoId.Contains("search", StringComparison.OrdinalIgnoreCase) ||
+                        edit.ControlType == ControlType.ComboBox)
+                    {
+                        isSearchOrAddress = true;
+                    }
+                }
 
                 // 探测左侧图标/子元素（如文件管理器搜索框左侧的 🔍 放大镜图标或地址栏下拉图标，避开图标区域）
                 int detectedIconRight = 0;
@@ -552,10 +612,10 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else if (isSearchOrAddress || (isChat && bounds.Height <= Math.Round(36 * scale)))
                 {
-                    // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框 / 微信顶栏单行搜索框：
-                    // 避开探测到的左侧图标，若无内部图标则取真实单行文字起始内边距（微信 10px / 桌面地址与搜索栏 34px）
-                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 34) * scale);
-                    caretHeight = (int)Math.Round(16 * scale);
+                    // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框 / 微信顶栏单行搜索框 / 网页搜索框（如 Google/百度）：
+                    // 避开探测到的左侧图标，若无内部图标则取真实单行文字起始内边距（微信 10px / 网页搜索 38px / 桌面地址与搜索栏 34px）
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : (isWeb ? 38 : 34)) * scale);
+                    caretHeight = (int)Math.Round(18 * scale);
                     if (bounds.Height < caretHeight + 4)
                         caretHeight = Math.Max(12, (int)bounds.Height - 4);
                     // 单行搜索/地址栏文字垂直居中排版

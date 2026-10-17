@@ -19,7 +19,7 @@ internal sealed class CaptureChain : IDisposable
 {
     private const long InitialBackoffMs = 250;
     private const long MaxBackoffMs = 3000;
-    private const long SlowFailureMs = 100;   // 达到该耗时的失败视为超时/卡顿（记退避）；更快的失败不记
+    private const long SlowFailureMs = 300;   // 达到该耗时的失败视为超时/卡顿（记退避）；更快的失败不记
     private const int PerPidCacheMax = 256;   // per-PID 缓存上限（超限整体清空；与 ForegroundReader 同策略，防长时运行无界增长）
 
     private sealed class Backoff
@@ -154,7 +154,17 @@ internal sealed class CaptureChain : IDisposable
             backoff.Remove(name);
             return true;
         }
-        if (!name.Equals("GUI", StringComparison.OrdinalIgnoreCase) &&
+        // Chromium 窗口与 GUI 后端严禁退避：
+        // 1) GUI 为本地快速 API 永不阻塞；
+        // 2) Chromium（Chrome/Edge）在 Windows 下仅有 UIA 一种可用后端（GUI/MSAA 不支持网页），
+        //    且 UIA 已在独立工作线程限时执行。若对其施加 3 秒死锁退避，跨进程 IPC 偶发波动（>300ms）
+        //    就会直接导致 Chromium 光标失效断流，表现为“长时间运行后变得不稳定”！
+        bool isChromium = false;
+        var sb = new System.Text.StringBuilder(32);
+        if (GetClassName(hwnd, sb, sb.Capacity) > 0 && sb.ToString().StartsWith("Chrome_WidgetWin", StringComparison.OrdinalIgnoreCase))
+            isChromium = true;
+
+        if (!name.Equals("GUI", StringComparison.OrdinalIgnoreCase) && !isChromium &&
             Environment.TickCount64 - t0 >= SlowFailureMs)
         {
             slowFailure = true;
