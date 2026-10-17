@@ -211,6 +211,10 @@ internal sealed class TsfCaretCapture : ICaretCapture
                 int bottom = BitConverter.ToInt32(rect, 12);
                 if ((left | top) == 0)
                     return false;   // 全零 = 此处无光标（与参考实现同判据）
+                if (right <= left)
+                    right = left + 1;
+                if (bottom <= top)
+                    bottom = top + 20;
                 caret = new CaretRect(left, top, right, bottom);
                 return true;
             }

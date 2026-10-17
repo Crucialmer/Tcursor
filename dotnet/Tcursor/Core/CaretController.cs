@@ -275,18 +275,32 @@ internal sealed class CaretController : IDisposable
         // 光标行高智能校准与全局基准归一化：
         // Windows 各应用框架对光标高度的报告极不一致：
         // - Win32 Edit / EmEditor / 文件管理器：仅报告纯字形上升高度（14~16px），导致下方符号偏上；
-        // - 微信 RichEdit / 自绘输入框：报告包含行间距甚至段落内边距的高包围盒（30~42px），导致符号偏下；
+        // - 微信 RichEdit / 自绘输入框 / TSF 选区：报告包含段落内边距甚至多行包围盒（30~120px），导致符号偏下；
         // - 现代标准文本行高（Notepad、Chrome、Word 默认等）：20~24px。
         // 对处于常规 UI 文本字号范围（<= 44px * scale）的光标，统一基准行高为 22px * scale，
         // 彻底消除不同软件在未输入/刚放入光标时提示符号高低不一、纵向漂移的问题。
-        // 当用户在编辑器中设置了较大字号（> 44px * scale，如标题/大字体排版）时，尊重真实底部。
+        // 微信等即时通讯软件（WeChat/Weixin/QQ 等）输入框恒为单行文本基准行高，绝不被多行容器高度带偏。
+        // 仅在非聊天应用且处于大字号排版（> 44px * scale，如大标题）时才尊重真实底部。
         int caretH = Math.Max(1, caret.Bottom - caret.Top);
         int targetLineH = (int)Math.Round(22 * scale);
         int maxUiLineH = (int)Math.Round(44 * scale);
-        int effectiveBottom = caret.Bottom;
-        if (caretH <= maxUiLineH)
+        bool isChatApp = win.Process.Equals("WeChat", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("Weixin", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("WeChatAppEx", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("WeixinExt", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("QQ", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("DingTalk", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("Feishu", StringComparison.OrdinalIgnoreCase) ||
+                         win.Process.Equals("Lark", StringComparison.OrdinalIgnoreCase);
+
+        int effectiveBottom;
+        if (isChatApp || caretH <= maxUiLineH)
         {
             effectiveBottom = caret.Top + targetLineH;
+        }
+        else
+        {
+            effectiveBottom = caret.Bottom;
         }
 
         int x = caret.Left + offsetX - pad;

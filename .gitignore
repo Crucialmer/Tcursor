@@ -9,3 +9,4 @@ dist_*/
 release_pkg/
 *.zip
 selftest_out/
+package_stage/

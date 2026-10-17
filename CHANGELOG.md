@@ -1,5 +1,15 @@
 # 更新日志（Tcursor）
 
+## v3.2（2026-10-17，正式版）
+
+- **彻底修复微信聊天框光标符号定位偏下与坐标不准 Bug**：
+  - **根除微信多行输入盒/段落高度脱保穿透（偏下根因）**：微信桌面客户端（WeChat 3.x / Weixin 4.x / XEditor / TSF 选区）在未输入或放入光标时，其 TSF `GetTextExt` 或多行自绘包围盒常报告 `48~120px` 的多行段落甚至整框高度。此前全局行高归一化仅在 `caretH <= 44px * scale` 时校准，导致微信的超大容器包围盒绕过归一化，提示符号被粗暴定位在 `caret.Bottom`（48~120px 底部），造成严重的“偏下”；
+  - **即时通讯类应用单行行高基准锚定**：在 `CaretController` 中对微信等即时通讯应用（`WeChat`、`Weixin`、`WeChatAppEx`、`WeixinExt`、`QQ`、`DingTalk`、`Feishu`、`Lark`）强制执行单行行高基准归一化（`effectiveBottom = caret.Top + targetLineH`），杜绝任何多行输入框将提示符号拖拽至聊天框底部，确保光标刚放入与未输入时提示符号紧密贴合第一行文字基线；
+  - **Win32 兜底捕获全面覆盖微信 MMRichEdit**：在 `CaptureChain.TryFallbackCaret` 中将编辑控件匹配由前缀匹配改为包含匹配（`IndexOf("RichEdit") >= 0` 并增加 `Chat` 类名识别），全面覆盖微信经典 Win32 控件 `MMRichEdit`；
+  - **TSF 进程内光标矩形安全防线**：在 `TsfCaretCapture` 中对解析出的 `rect` 补足非正宽高自动保底（`right <= left` 保底 +1，`bottom <= top` 保底 +20），杜绝极端坐标反转；
+- **其他所有软件高精度定位零回归**：严格保持 EmEditor、Windows 资源管理器、Chrome/Edge 浏览器与记事本等软件在 v2.9/v3.0/v3.1 中建立的高精度行高对齐与防误判机制；
+- **界面外观绝对冻结（零变动）**：严格保持经典的 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系与三标签页纯净布局不变。
+
 ## v3.1（2026-10-17，正式版）
 
 - **彻底根除所有软件光标提示符号不显示严重回归**：
