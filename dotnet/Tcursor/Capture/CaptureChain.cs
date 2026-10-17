@@ -231,12 +231,24 @@ internal sealed class CaptureChain : IDisposable
                         int h = focusRect.Bottom - focusRect.Top;
                         if (w >= 16 && h >= 14)
                         {
+                            double scale = 1.0;
+                            try
+                            {
+                                var pt = new POINT { X = focusRect.Left, Y = focusRect.Top };
+                                IntPtr monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+                                if (monitor != IntPtr.Zero && GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0 && dpiX > 0)
+                                {
+                                    scale = dpiX / 96.0;
+                                }
+                            }
+                            catch { }
+
                             bool isChat = className.IndexOf("Chat", StringComparison.OrdinalIgnoreCase) >= 0
                                 || className.IndexOf("MMRichEdit", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                            int padX = isChat ? 12 : (h <= 54 ? 10 : Math.Min(8, Math.Max(4, w / 16)));
-                            int caretH = isChat ? 16 : (h <= 54 ? Math.Min(18, Math.Max(12, h - 8)) : 16);
-                            int padY = isChat ? 8 : (h <= 54 ? Math.Max(2, (h - caretH) / 2) : 4);
+                            int padX = isChat ? (int)Math.Round(12 * scale) : (h <= 54 * scale ? (int)Math.Round(10 * scale) : Math.Min(8, Math.Max(4, w / 16)));
+                            int caretH = isChat ? (int)Math.Round(16 * scale) : (h <= 54 * scale ? Math.Min((int)Math.Round(18 * scale), Math.Max(12, h - 8)) : (int)Math.Round(16 * scale));
+                            int padY = isChat ? (int)Math.Round(8 * scale) : (h <= 54 * scale ? Math.Max(2, (h - caretH) / 2) : (int)Math.Round(4 * scale));
 
                             rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
                             return true;
