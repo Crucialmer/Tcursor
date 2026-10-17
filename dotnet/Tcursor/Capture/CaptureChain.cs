@@ -231,10 +231,13 @@ internal sealed class CaptureChain : IDisposable
                         int h = focusRect.Bottom - focusRect.Top;
                         if (w >= 16 && h >= 14)
                         {
-                            int padX = Math.Min(8, Math.Max(4, w / 16));
-                            int padY = Math.Min(4, Math.Max(2, (h - 20) / 2));
-                            // 多行控件只取首行高度 16px，单行框（<=36px）贴合内部
-                            int caretH = h <= 36 ? Math.Min(16, Math.Max(12, h - padY * 2)) : 16;
+                            bool isChat = className.IndexOf("Chat", StringComparison.OrdinalIgnoreCase) >= 0
+                                || className.IndexOf("MMRichEdit", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                            int padX = isChat ? 12 : (h <= 54 ? 10 : Math.Min(8, Math.Max(4, w / 16)));
+                            int caretH = isChat ? 16 : (h <= 54 ? Math.Min(18, Math.Max(12, h - 8)) : 16);
+                            int padY = isChat ? 8 : (h <= 54 ? Math.Max(2, (h - caretH) / 2) : 4);
+
                             rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
                             return true;
                         }

@@ -1,6 +1,7 @@
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Patterns;
 using FlaUI.UIA3;
 using Tcursor.Core;
 
@@ -258,7 +259,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     }
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
-    /// （含 WPF 折叠选区无矩形修复与相邻字符推算，失败时按输入控件边界推算）。</summary>
+    /// （含 Chromium/WPF 扩展字符单元、WPF 相邻字符推算、鼠标点击拾取，失败时按输入控件边界推算）。</summary>
     private static bool TryElementCaret(AutomationElement element, out CaretRect caret, bool isFocusedElement = false)
     {
         caret = default;
@@ -272,12 +273,17 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (text2 is not null)
             {
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
-                if (TryRectOf(range, out caret))
+                if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
                     return true;
-                // XAML/壳控件的 Text2 光标范围常常没有几何矩形（如 Win11 资源管理器地址栏、搜索框）：
-                // 仅在光标处于活动状态时，借相邻字符范围的边缘推算光标位置
-                if (range is not null && isActive && TryCaretViaNeighborRange(range, out caret))
-                    return true;
+                // XAML/壳控件/Chromium 的 Text2 光标范围常常没有几何矩形（如 Win11 资源管理器地址栏、搜索框）：
+                // 仅在光标处于活动状态时，借扩展字符单元或相邻字符推算光标位置
+                if (range is not null && isActive)
+                {
+                    if (TryCaretViaExpandUnit(range, out caret))
+                        return true;
+                    if (TryCaretViaNeighborRange(range, out caret))
+                        return true;
+                }
             }
 
             var text = element.Patterns.Text.PatternOrDefault;
@@ -294,18 +300,33 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         return true;
                     }
 
-                    // WPF 关键修复：WPF TextBox 的 TextPattern.GetSelection() 在纯光标闪烁（折叠选区）时，
-                    // GetBoundingRectangles() 恒返回空数组！必须通过相邻字符范围边缘推算光标
-                    if (TryCaretViaNeighborRange(selRange, out caret))
+                    // 仅当属于纯插入点（折叠选区）时，通过字符单元扩展或相邻字符推算光标；
+                    // 成片选区（拖选/全选 URL）不误判为光标，避免死锁在最左侧
+                    if (IsCollapsed(selRange))
+                    {
+                        // 优先通过 ExpandToEnclosingUnit(Character) 还原光标位置（彻底解决 Chrome 网址栏与网页输入框）
+                        if (TryCaretViaExpandUnit(selRange, out caret))
+                            return true;
+
+                        // WPF 关键修复：借相邻字符边缘推算
+                        if (TryCaretViaNeighborRange(selRange, out caret))
+                            return true;
+                    }
+
+                    // 尝试通过鼠标坐标辅助拾取点击处字符
+                    if (TryCaretFromMousePoint(element, text, out caret))
                         return true;
 
-                    // 若输入框为空或无法通过相邻字符获取，回退到输入控件边界推算
+                    // 若输入框为空或无法通过字符获取，回退到输入控件边界推算
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
-                else if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                else
                 {
-                    return true;
+                    if (TryCaretFromMousePoint(element, text, out caret))
+                        return true;
+                    if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                        return true;
                 }
             }
             else if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
@@ -334,36 +355,78 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             var bounds = edit.BoundingRectangle;
             if (bounds.Width > 0 && bounds.Height > 0)
             {
-                int padX = Math.Min(6, (int)bounds.Width / 4);
-                bool isSearchOrAddress = false;
+                double scale = GetDpiScaleFor((int)bounds.Left, (int)bounds.Top);
+
+                string name = "";
+                string className = "";
+                string autoId = "";
                 try
                 {
-                    string name = edit.Properties.Name.ValueOrDefault ?? "";
-                    string className = edit.Properties.ClassName.ValueOrDefault ?? "";
-                    string autoId = edit.Properties.AutomationId.ValueOrDefault ?? "";
-                    if (name.Contains("搜索", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("地址", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("Address", StringComparison.OrdinalIgnoreCase) ||
-                        className.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
-                        className.Contains("Breadcrumb", StringComparison.OrdinalIgnoreCase) ||
-                        autoId.Contains("Search", StringComparison.OrdinalIgnoreCase))
-                    {
-                        isSearchOrAddress = true;
-                    }
+                    name = edit.Properties.Name.ValueOrDefault ?? "";
+                    className = edit.Properties.ClassName.ValueOrDefault ?? "";
+                    autoId = edit.Properties.AutomationId.ValueOrDefault ?? "";
+                }
+                catch { }
 
-                    // 探测左侧图标/子元素（如文件管理器搜索框左侧的 🔍 放大镜图标，避开图标区域）
+                bool isChat = false;
+                if (className.Contains("MMRichEdit", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("ChatWnd", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("WeChat", StringComparison.OrdinalIgnoreCase))
+                {
+                    isChat = true;
+                }
+                else
+                {
+                    try
+                    {
+                        int pid = edit.Properties.ProcessId.ValueOrDefault;
+                        if (pid > 0)
+                        {
+                            string pName = System.Diagnostics.Process.GetProcessById(pid).ProcessName;
+                            if (pName.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                pName.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                pName.IndexOf("WXWork", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                pName.IndexOf("QQ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                pName.IndexOf("DingTalk", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                pName.IndexOf("Feishu", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                isChat = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                bool isSearchOrAddress = false;
+                if (name.Contains("搜索", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("地址", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Address", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("Breadcrumb", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                    autoId.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                    autoId.Contains("Omnibox", StringComparison.OrdinalIgnoreCase) ||
+                    autoId.Contains("Address", StringComparison.OrdinalIgnoreCase))
+                {
+                    isSearchOrAddress = true;
+                }
+
+                // 探测左侧图标/子元素（如文件管理器搜索框左侧的 🔍 放大镜图标或地址栏下拉图标，避开图标区域）
+                int detectedIconRight = 0;
+                try
+                {
                     var children = edit.FindAllChildren();
                     if (children is { Length: > 0 })
                     {
                         foreach (var child in children)
                         {
                             var cb = child.BoundingRectangle;
-                            if (cb.Width > 0 && cb.Left >= bounds.Left && cb.Right <= bounds.Left + 60)
+                            if (cb.Width > 0 && cb.Left >= bounds.Left && cb.Right <= bounds.Left + 80 * scale)
                             {
-                                if (child.ControlType == ControlType.Image || child.ControlType == ControlType.Button)
+                                if (child.ControlType == ControlType.Image || child.ControlType == ControlType.Button || child.ControlType == ControlType.Text)
                                 {
-                                    padX = Math.Max(padX, (int)(cb.Right - bounds.Left) + 4);
+                                    detectedIconRight = Math.Max(detectedIconRight, (int)(cb.Right - bounds.Left) + (int)Math.Round(4 * scale));
                                     isSearchOrAddress = true;
                                 }
                             }
@@ -372,18 +435,46 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 catch { }
 
-                // 若属于搜索栏/地址栏且无子元素测量值，使用通用图标安全内边距 28px（杜绝文件管理器窗口偏左）
-                if (isSearchOrAddress && padX < 28)
-                {
-                    padX = 28;
-                }
+                int padX;
+                int padY;
+                int caretHeight;
 
-                int padY = Math.Min(4, (int)bounds.Height / 4);
-                // 紧凑单行框（<=36px）贴合控件高度；多行输入框（如微信聊天框、Notepad、高度 > 36px）
-                // 首行光标只占标准单行高度（16px），绝不能将整个多行区域（100~200px）算作光标高度（杜绝微信偏下）
-                int caretHeight = bounds.Height <= 36
-                    ? Math.Max(12, (int)bounds.Height - padY * 2)
-                    : 16;
+                if (isChat)
+                {
+                    // 微信/即时通讯软件聊天输入框（高度通常 100~200px）：
+                    // 标准首行左边距 12px*scale，顶边距 8px*scale，首行高度 16px*scale，与打字时光标基准绝对吻合
+                    padX = (int)Math.Round(12 * scale);
+                    padY = (int)Math.Round(8 * scale);
+                    caretHeight = (int)Math.Round(16 * scale);
+                }
+                else if (isSearchOrAddress)
+                {
+                    // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框：
+                    // 避开左侧锁头/搜索芯片/放大镜图标（未探测到时取 38px*scale 安全留白）
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round(38 * scale);
+                    caretHeight = (int)Math.Round(18 * scale);
+                    if (bounds.Height < caretHeight + 4)
+                        caretHeight = Math.Max(12, (int)bounds.Height - 4);
+                    // 单行搜索/地址栏文字垂直居中排版
+                    padY = Math.Max(2, ((int)bounds.Height - caretHeight) / 2);
+                }
+                else if (bounds.Height <= Math.Round(54 * scale))
+                {
+                    // 现代网页普通单行输入框（Chrome input）/ 原生单行编辑框：
+                    // 内边距 10px*scale，文字垂直居中排版，行高 18px*scale，彻底解决偏上与偏左
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round(10 * scale);
+                    caretHeight = (int)Math.Round(18 * scale);
+                    if (bounds.Height < caretHeight + 4)
+                        caretHeight = Math.Max(12, (int)bounds.Height - 4);
+                    padY = Math.Max(2, ((int)bounds.Height - caretHeight) / 2);
+                }
+                else
+                {
+                    // 多行编辑控件（网页 textarea / Notepad / 自绘多行框）：
+                    padX = (int)Math.Round(8 * scale);
+                    padY = (int)Math.Round(6 * scale);
+                    caretHeight = (int)Math.Round(18 * scale);
+                }
 
                 int left = (int)bounds.Left + padX;
                 int top = (int)bounds.Top + padY;
@@ -506,13 +597,130 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             if (r.Height > 0 && r.Width >= 0)
             {
-                int w = Math.Min(r.Width, MaxCaretLikeWidthPx);
-                if (w <= 0) w = 1;
+                int w = r.Width <= 0 ? 1 : r.Width;
                 caret = new CaretRect(r.Left, r.Top, r.Left + w, r.Bottom);
                 return true;
             }
         }
         return false;
+    }
+
+    /// <summary>判断选区是否为零长度纯光标折叠态</summary>
+    private static bool IsCollapsed(ITextRange range)
+    {
+        try
+        {
+            return range.CompareEndpoints(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.End) == 0;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 通过 ExpandToEnclosingUnit(Character) 获取光标所在单个字符的屏幕矩形。
+    /// Chromium（Chrome/Edge 网址栏与网页输入框）、WPF、XAML 均完整实现该接口；
+    /// 当零长度折叠选区自身不返回矩形时，扩展至字符单元可高精度还原光标屏幕坐标。
+    /// </summary>
+    private static bool TryCaretViaExpandUnit(ITextRange caretRange, out CaretRect caret)
+    {
+        caret = default;
+        try
+        {
+            ITextRange expanded = caretRange.Clone();
+            expanded.ExpandToEnclosingUnit(TextUnit.Character);
+            System.Drawing.Rectangle[] rects = expanded.GetBoundingRectangles();
+            if (rects is { Length: > 0 })
+            {
+                int x;
+                int top;
+                int bottom;
+                try
+                {
+                    int cmp = caretRange.CompareEndpoints(TextPatternRangeEndpoint.Start, expanded, TextPatternRangeEndpoint.Start);
+                    if (cmp > 0)
+                    {
+                        var last = rects[^1];
+                        x = last.Right;
+                        top = last.Top;
+                        bottom = last.Bottom;
+                    }
+                    else
+                    {
+                        var first = rects[0];
+                        x = first.Left;
+                        top = first.Top;
+                        bottom = first.Bottom;
+                    }
+                }
+                catch
+                {
+                    var first = rects[0];
+                    x = first.Left;
+                    top = first.Top;
+                    bottom = first.Bottom;
+                }
+
+                if (bottom > top)
+                {
+                    caret = new CaretRect(x, top, x + 1, bottom);
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // 忽略 ExpandToEnclosingUnit 不支持的异常
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 当选区端点未暴露或处于点击更新瞬态时，利用当前鼠标坐标在文本控件内拾取对应字符位置
+    /// </summary>
+    private static bool TryCaretFromMousePoint(AutomationElement element, ITextPattern text, out CaretRect caret)
+    {
+        caret = default;
+        try
+        {
+            if (Win32.NativeMethods.GetCursorPos(out Win32.NativeMethods.POINT mousePt))
+            {
+                var bounds = element.BoundingRectangle;
+                if (bounds.Width > 0 && bounds.Height > 0 &&
+                    mousePt.X >= bounds.Left && mousePt.X <= bounds.Right &&
+                    mousePt.Y >= bounds.Top && mousePt.Y <= bounds.Bottom)
+                {
+                    ITextRange? ptRange = text.RangeFromPoint(new System.Drawing.Point(mousePt.X, mousePt.Y));
+                    if (ptRange is not null)
+                    {
+                        if (TryRectOf(ptRange, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
+                            return true;
+                        if (TryCaretViaExpandUnit(ptRange, out caret))
+                            return true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+        return false;
+    }
+
+    private static double GetDpiScaleFor(int x, int y)
+    {
+        try
+        {
+            var pt = new Win32.NativeMethods.POINT { X = x, Y = y };
+            IntPtr monitor = Win32.NativeMethods.MonitorFromPoint(pt, Win32.NativeMethods.MONITOR_DEFAULTTONEAREST);
+            if (monitor != IntPtr.Zero && Win32.NativeMethods.GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0 && dpiX > 0)
+            {
+                return dpiX / 96.0;
+            }
+        }
+        catch { }
+        return 1.0;
     }
 
     public void Dispose()
