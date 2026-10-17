@@ -188,7 +188,7 @@ internal sealed class CaretController : IDisposable
             return;
         }
 
-        WindowInfo win = _foreground.Read(_needsTitle, _needsClass);
+        WindowInfo win = _foreground.Read(_needsTitle, needClass: true);
         if (win.Hwnd == IntPtr.Zero || win.Pid == 0 || win.Pid == (uint)_ownPid || win.Process.Length == 0)
         {
             HideSymbol();
@@ -284,21 +284,50 @@ internal sealed class CaretController : IDisposable
         int caretH = Math.Max(1, caret.Bottom - caret.Top);
         bool isChatApp = win.Process.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
                          win.Process.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         win.Class.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         win.Class.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         win.Title.Contains("微信") ||
+                         win.Process.IndexOf("WXWork", StringComparison.OrdinalIgnoreCase) >= 0 ||
                          win.Process.IndexOf("QQ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Process.IndexOf("TIM", StringComparison.OrdinalIgnoreCase) >= 0 ||
                          win.Process.IndexOf("DingTalk", StringComparison.OrdinalIgnoreCase) >= 0 ||
                          win.Process.IndexOf("Feishu", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         win.Process.IndexOf("Lark", StringComparison.OrdinalIgnoreCase) >= 0;
+                         win.Process.IndexOf("Lark", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Class.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Class.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Class.IndexOf("ChatWnd", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         win.Title.Contains("微信") ||
+                         win.Title.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         rule.Name.Contains("微信") ||
+                         rule.Name.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         rule.Name.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         rule.Name.IndexOf("WXWork", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         (rule.Process?.ToString().IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
+                         (rule.Process?.ToString().IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
+                         (rule.Process?.ToString().IndexOf("WXWork", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
 
-        // 聊天应用（微信/QQ/钉钉等）使用 14px*scale 标准聊天字号基准，彻底消灭 22px 带来的下沉悬空；
-        // 现代文本编辑器与通用窗口（Notepad、Chrome、EmEditor、资源管理器等）维持 22px*scale 统一行高
-        int targetLineH = (int)Math.Round((isChatApp ? 14 : 22) * scale);
+        int targetLineH = (int)Math.Round(22 * scale);
         int maxUiLineH = (int)Math.Round(44 * scale);
 
+        // 微信/即时通讯类应用视觉对齐核心算法（彻底解决“仍然偏下”）：
+        // 1. TSF/Win32 下若 caretH 为 10~24px 范围，说明底层报告了真实的单行光标高度，有效底边直取 caret.Bottom；
+        // 2. 若 caretH < 10px（TSF 选区退化残片/基线坐标），底层 top 已直接位于文字基线（Baseline），仅需补 1px 微量对齐；
+        // 3. 若 caretH > 24px（多行编辑区或聊天框容器整框包围盒，如 48~150px），首行文字严格按 14px*scale 标准聊天字号折叠。
+        // 通用窗口与现代编辑器（Notepad、Chrome、EmEditor、资源管理器等）维持标准 22px*scale 行高归一化。
         int effectiveBottom;
-        if (isChatApp || caretH <= maxUiLineH)
+        if (isChatApp)
+        {
+            if (caretH >= (int)Math.Round(10 * scale) && caretH <= (int)Math.Round(24 * scale))
+            {
+                effectiveBottom = caret.Bottom;
+            }
+            else if (caretH < (int)Math.Round(10 * scale))
+            {
+                effectiveBottom = caret.Top + (int)Math.Round(1 * scale);
+            }
+            else
+            {
+                effectiveBottom = caret.Top + (int)Math.Round(14 * scale);
+            }
+        }
+        else if (caretH <= maxUiLineH)
         {
             effectiveBottom = caret.Top + targetLineH;
         }

@@ -80,7 +80,33 @@ internal sealed class ForegroundReader
         }
         catch
         {
-            // 进程已退出或无权访问：缓存空名（短时）
+            // 权限受限或跨完整性级别时 Process.GetProcessById 抛异常：尝试通过只读受限句柄读取模块名
+            try
+            {
+                IntPtr hProc = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+                if (hProc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        var sb = new StringBuilder(260);
+                        if (K32GetModuleBaseNameW(hProc, IntPtr.Zero, sb, sb.Capacity) > 0)
+                        {
+                            string s = sb.ToString();
+                            if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                s = s.Substring(0, s.Length - 4);
+                            name = s;
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hProc);
+                    }
+                }
+            }
+            catch
+            {
+                // 彻底无法读取：缓存空名
+            }
         }
 
         if (_processNames.Count >= ProcNameCacheMax)

@@ -214,7 +214,7 @@ internal sealed class TsfCaretCapture : ICaretCapture
                 if (right <= left)
                     right = left + 1;
                 if (bottom <= top)
-                    bottom = top + 20;
+                    bottom = top + 1;
                 caret = new CaretRect(left, top, right, bottom);
                 return true;
             }

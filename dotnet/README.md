@@ -2,6 +2,22 @@
 
 Tcursor —— 在光标旁显示输入法状态符号的 Windows 小工具；本目录为其 C#/.NET（WinForms）实现（基于 .NET 10）。
 
+## 功能范围（v3.4 正式版）
+
+- **彻底根治微信聊天框光标提示符号偏下与基线三态对齐（视觉与几何深度根治）**：
+  - **TSF 进程内光标假膨胀根除（最关键偏下根因）**：在微信（WeChat 3.x / Weixin 4.x / XEditor）中，TSF `ITfContextView::GetTextExt` 在纯光标折叠选区（无字符或未输入时）时，底层直接报告文字基线（Baseline）退化坐标（`top == bottom`）。此前版本在 `TsfCaretCapture` 中简单执行 `bottom = top + 20` 强行填补虚假 20px 高度，导致基线位置被虚构出 20px 下沉矩形，使光标提示符号被推入文字下方的空白区域中（悬空 14~20px）。新版恢复真实退化坐标（`bottom = top + 1`），让上层精准感知基线位置；
+  - **即时通讯应用专属基线三态精准对齐算法**：
+    1. **真实单行光标高度态（10~24px）**：Win32/UIA/TSF 报告真实字符高度时，有效底边严格直取 `caret.Bottom`，提示符号瞬间贴紧文字底边缘；
+    2. **基线退化残片态（< 10px）**：当 TSF 折叠选区或仅暴露文字基线时，顶边即为文字基线，有效底边直取 `caret.Top + 1*scale`，紧密咬合文字基准线，彻底消灭任何向下漂移与悬空间隙；
+    3. **超大多行包围盒折叠态（> 24px）**：当多行编辑区或空输入框报告整框包围盒（48~150px）时，首行文字严格按 14px*scale 标准聊天字号折叠，杜绝被容器拉扯到聊天框底部；
+  - **聊天应用多维度全谱系立体识别体系**：
+    - `win.Process` 覆盖：`WeChat`、`Weixin`、`WXWork`（企业微信）、`QQ`、`TIM`、`DingTalk`（钉钉）、`Feishu`（飞书）、`Lark`；
+    - `win.Class` 覆盖：`WeChatMainWndForPC`、`ChatWnd` 等，且在 `CaretController` 中始终保持窗口类名读取（`needClass: true`），杜绝类名未加载导致的判空漏判；
+    - `win.Title` 与规则名/规则正则全覆盖：支持含“微信”、`WeChat`、`Weixin`、`WXWork` 的规则与标题匹配，杜绝任何别名遗漏；
+  - **管理员/高完整性级别进程名提取兜底保障**：在 `ForegroundReader` 中对 `Process.GetProcessById` 增加 `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `K32GetModuleBaseNameW` 双重兜底，即便微信以管理员身份运行或受 UIPI 隔离，亦能 100% 正确解析进程名为 `WeChat`；
+- **其他所有软件高精度定位零回归**：严格保持 EmEditor、Windows 资源管理器、Edge/Chrome 网页正常输入框、记事本等软件的高精度实时跟随与定位；
+- **界面外观绝对冻结（零变动）**：严格保持经典的 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系与三标签页纯净布局不变。
+
 ## 功能范围（v3.3 正式版）
 
 - **彻底修复 Chrome 网页未入输入框误弹提示与输入时光标不动 Bug**：
