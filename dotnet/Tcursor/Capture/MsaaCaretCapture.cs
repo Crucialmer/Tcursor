@@ -16,6 +16,9 @@ internal sealed class MsaaCaretCapture : ICaretCapture
     public bool TryGetCaret(IntPtr hwnd, out CaretRect caret)
     {
         caret = default;
+        if (hwnd == IntPtr.Zero || IsSkippedClass(hwnd))
+            return false;
+
         object? acc = null;
         try
         {
@@ -46,5 +49,16 @@ internal sealed class MsaaCaretCapture : ICaretCapture
                 try { Marshal.ReleaseComObject(acc); } catch { }
             }
         }
+    }
+
+    private static bool IsSkippedClass(IntPtr hwnd)
+    {
+        var sb = new System.Text.StringBuilder(32);
+        if (GetClassName(hwnd, sb, sb.Capacity) <= 0)
+            return false;
+        string name = sb.ToString();
+        // Chromium 系（Chrome / Edge / Electron 等）光标完全由 UIA 覆盖，
+        // Chrome_WidgetWin 窗口层级的 AXSystemCaretWin 在切换与打开时会残留陈旧坐标，严禁被全局 MSAA 采纳
+        return name.StartsWith("Chrome_WidgetWin", StringComparison.Ordinal);
     }
 }

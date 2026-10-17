@@ -264,7 +264,7 @@ internal sealed class CaretController : IDisposable
         // 光标应在窗口范围内（滚动出视野时不显示）
         if (GetWindowRect(win.Hwnd, out RECT windowRect))
         {
-            int cx = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
+            int cx = caret.Left;
             int cy = (caret.Top + caret.Bottom) / 2;
             if (cx < windowRect.Left - 24 || cx > windowRect.Right + 24 ||
                 cy < windowRect.Top - 24 || cy > windowRect.Bottom + 24)
@@ -378,10 +378,7 @@ internal sealed class CaretController : IDisposable
             effectiveBottom = caret.Bottom;
         }
 
-        // 输拼音打字阶段与选区处理：若后端报告存在字符宽度的选区/组字串（Right > Left + 1），
-        // 符号恒定锚定在组字串末尾（caret.Right），绝不在首尾来回跳跃
-        int caretX = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
-        int x = caretX + offsetX - pad;
+        int x = caret.Left + offsetX - pad;
         int y = (config.OriginBelow ? effectiveBottom : caret.Top) + offsetY - pad;
 
         bool stateChanged = state != _lastState;

@@ -218,34 +218,47 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         // 步骤 1（极速首选，耗时通常 < 2ms）：直接获取当前具有全局键盘焦点的 UIA 元素
         // 覆盖 99% 的文本输入场景（Chrome、Edge、微信、Notepad、EmEditor、资源管理器地址栏/搜索框、各类 WPF/自绘窗口）
         // 且由于 FocusedElement 本身即代表当前键盘输入焦点，可免受跨完整性级别/跨权限时 HasKeyboardFocus 属性读取失效的影响
+        bool focusedIsChromiumNonEdit = false;
         try
         {
             AutomationElement? focused = automation.FocusedElement();
             if (focused is not null)
             {
-                // 严格校验：焦点元素必须属于目标前台窗口（或其子控件、同进程），
-                // 杜绝跨窗口、桌面、任务栏等外来焦点元素的几何污染
-                bool belongs = false;
-                IntPtr focusedHwnd = (IntPtr)focused.Properties.NativeWindowHandle.ValueOrDefault;
-                if (focusedHwnd != IntPtr.Zero)
+                if (IsChromiumPageRoot(focused) || (IsWebElement(focused) && focused.ControlType != ControlType.Edit))
                 {
-                    belongs = focusedHwnd == hwnd || Win32.NativeMethods.GetAncestor(focusedHwnd, Win32.NativeMethods.GA_ROOT) == hwnd;
+                    focusedIsChromiumNonEdit = true;
                 }
                 else
                 {
-                    Win32.NativeMethods.GetWindowThreadProcessId(hwnd, out uint hwndPid);
-                    int focusedPid = focused.Properties.ProcessId.ValueOrDefault;
-                    belongs = hwndPid != 0 && focusedPid == (int)hwndPid;
-                }
+                    // 严格校验：焦点元素必须属于目标前台窗口（或其子控件、同进程），
+                    // 杜绝跨窗口、桌面、任务栏等外来焦点元素的几何污染
+                    bool belongs = false;
+                    IntPtr focusedHwnd = (IntPtr)focused.Properties.NativeWindowHandle.ValueOrDefault;
+                    if (focusedHwnd != IntPtr.Zero)
+                    {
+                        belongs = focusedHwnd == hwnd || Win32.NativeMethods.GetAncestor(focusedHwnd, Win32.NativeMethods.GA_ROOT) == hwnd;
+                    }
+                    else
+                    {
+                        Win32.NativeMethods.GetWindowThreadProcessId(hwnd, out uint hwndPid);
+                        int focusedPid = focused.Properties.ProcessId.ValueOrDefault;
+                        belongs = hwndPid != 0 && focusedPid == (int)hwndPid;
+                    }
 
-                if (belongs && TryElementCaret(focused, hwnd, out caret, isFocusedElement: true))
-                    return true;
+                    if (belongs && TryElementCaret(focused, hwnd, out caret, isFocusedElement: true))
+                        return true;
+                }
             }
         }
         catch (Exception ex) when (!IsFatalComException(ex))
         {
             // 忽略跨进程 UIPI 或焦点获取常规异常，致命 COM 异常向上抛出以触发自愈重建
         }
+
+        // 若前台键盘焦点明确位于 Chromium 网页非编辑区域（网页正文、链接、图片、空白背景），
+        // 用户根本未处于打字状态，坚决禁止回退到步骤 3 误抓取顶栏 Omnibox 网址输入框！
+        if (focusedIsChromiumNonEdit)
+            return false;
 
         // 步骤 2：直接检查目标窗口根元素（部分简易窗口根元素自身即承载 TextPattern）
         AutomationElement? element = null;
@@ -307,11 +320,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             {
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
                 if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
-                {
-                    int caretX = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
-                    caret = new CaretRect(caretX, caret.Top, caretX + 1, caret.Bottom);
                     return true;
-                }
                 // XAML/壳控件/Chromium 的 Text2 光标范围常常没有几何矩形（如 Win11 资源管理器地址栏、搜索框）：
                 // 仅在光标处于活动状态时，借扩展字符单元或相邻字符推算光标位置
                 if (range is not null && isActive)
@@ -333,8 +342,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     if (TryRectOf(selRange, out CaretRect selRect)
                         && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
                     {
-                        int caretX = selRect.Right > selRect.Left + 1 ? selRect.Right : selRect.Left;
-                        caret = new CaretRect(caretX, selRect.Top, caretX + 1, selRect.Bottom);
+                        caret = selRect;
                         return true;
                     }
 
@@ -351,22 +359,30 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                             return true;
 
                         // Chromium Views 专用：对于 Chrome 网址输入框（OmniboxViewViews），
-                        // 折叠选区自身不返回字符几何矩形，且仅在拥有焦点时借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取物理屏幕矩形！
+                        // 折叠选区自身不返回字符几何矩形，且仅在拥有文本且拥有焦点时借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取物理屏幕矩形！
                         string clsName = "";
                         try { clsName = element.Properties.ClassName.ValueOrDefault ?? ""; } catch { }
                         if (!isWeb && clsName.Contains("Omnibox", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (TryMsaaCaret(element, topHwnd, out caret))
+                            bool hasText = false;
+                            try
+                            {
+                                string doc = text.DocumentRange?.GetText(8) ?? "";
+                                hasText = doc.Trim().Length > 0;
+                            }
+                            catch { }
+
+                            if (hasText && TryMsaaCaret(element, topHwnd, out caret))
                                 return true;
                         }
+
+                        // 纯光标插入点折叠状态下未暴露文本几何（如未输入/空文本框）：回退到控件几何边界推算
+                        if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                            return true;
                     }
 
                     // 尝试通过鼠标坐标辅助拾取点击处字符
                     if (TryCaretFromMousePoint(element, text, out caret))
-                        return true;
-
-                    // 若输入框为空或无法通过字符获取，回退到输入控件边界推算
-                    if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
                 else
@@ -504,8 +520,8 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 else if (isSearchOrAddress || (isChat && bounds.Height <= Math.Round(36 * scale)))
                 {
                     // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框 / 微信顶栏单行搜索框：
-                    // 避开左侧锁头/搜索芯片/放大镜图标（未探测到时取微信 10px / 网址栏 38px 安全留白）
-                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 38) * scale);
+                    // 避开探测到的左侧图标，若无内部图标则取真实单行文字起始内边距（微信 10px / 网址栏 6px）
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 6) * scale);
                     caretHeight = (int)Math.Round(16 * scale);
                     if (bounds.Height < caretHeight + 4)
                         caretHeight = Math.Max(12, (int)bounds.Height - 4);
