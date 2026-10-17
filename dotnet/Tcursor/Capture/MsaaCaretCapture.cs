@@ -26,10 +26,12 @@ internal sealed class MsaaCaretCapture : ICaretCapture
 
             dynamic d = acc;
             d.accLocation(out int left, out int top, out int width, out int height, 0);
-            if (width <= 0 || height <= 0)
+            if (width < 0 || height < 0)
                 return false;
 
-            caret = new CaretRect(left, top, left + width, top + height);
+            int caretW = Math.Max(1, width);
+            int caretH = Math.Max(1, height);
+            caret = new CaretRect(left, top, left + caretW, top + caretH);
             return true;
         }
         catch

@@ -272,14 +272,21 @@ internal sealed class CaretController : IDisposable
         // 「柔和阴影」边框样式会在位图四周扩出阴影边距：显示位置相应回补，保证可见形状锚点不变
         int pad = SymbolRenderer.GetShadowPadding(style, config.ShapeEdgeStyle, scale);
 
-        // 光标行高智能校准（解决 EmEditor 等自绘编辑器光标高度仅为 1px 导致符号偏上、或全框高度导致偏下的问题）
-        int caretH = caret.Bottom - caret.Top;
-        int minLineH = (int)Math.Round(14 * scale);
+        // 光标行高智能校准与全局基准归一化：
+        // Windows 各应用框架对光标高度的报告极不一致：
+        // - Win32 Edit / EmEditor / 文件管理器：仅报告纯字形上升高度（14~16px），导致下方符号偏上；
+        // - 微信 RichEdit / 自绘输入框：报告包含行间距甚至段落内边距的高包围盒（30~42px），导致符号偏下；
+        // - 现代标准文本行高（Notepad、Chrome、Word 默认等）：20~24px。
+        // 对处于常规 UI 文本字号范围（<= 44px * scale）的光标，统一基准行高为 22px * scale，
+        // 彻底消除不同软件在未输入/刚放入光标时提示符号高低不一、纵向漂移的问题。
+        // 当用户在编辑器中设置了较大字号（> 44px * scale，如标题/大字体排版）时，尊重真实底部。
+        int caretH = Math.Max(1, caret.Bottom - caret.Top);
+        int targetLineH = (int)Math.Round(22 * scale);
+        int maxUiLineH = (int)Math.Round(44 * scale);
         int effectiveBottom = caret.Bottom;
-        if (caretH < minLineH)
+        if (caretH <= maxUiLineH)
         {
-            // 目标程序（如 EmEditor）仅报告了 1px 或极矮的顶部锚点，扩充至标准单行高度（18px * scale）
-            effectiveBottom = caret.Top + (int)Math.Round(18 * scale);
+            effectiveBottom = caret.Top + targetLineH;
         }
 
         int x = caret.Left + offsetX - pad;
