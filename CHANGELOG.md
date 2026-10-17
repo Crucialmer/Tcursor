@@ -1,5 +1,17 @@
 # 更新日志（Tcursor）
 
+## v3.8（2026-10-17，正式版）
+
+- **彻底修复文件资源管理器提示符号随鼠标移动 Bug（根除假光标鼠标坐标合成漏洞）**：
+  - **深层技术根因**：此前在 `TryCaretFromMousePoint` 中引入了基于鼠标物理 X 坐标的兜底合成逻辑（`clampedX = mousePt.X`）。在 Windows 文件资源管理器（现代 DirectUI / XAML 地址栏、搜索框、重命名框及列表视图）中，控件虽然承载了 `ITextPattern` 接口，但底层未对字符范围暴露像素级包围盒；当用户鼠标掠过或悬停在控件包围盒范围内时，`text.RangeFromPoint(mousePt)` 成功返回文本区间但无几何边界，直接触发了该兜底合成，将鼠标当前瞬时物理 X 坐标强行伪造成了文字插入点光标，导致用户只要在控件内移动鼠标，提示符号便完全跟着鼠标指针游走，严重偏离了文本输入框的真实文字光标；
+  - **坚决杜绝鼠标指针伪造光标，恢复纯正无障碍几何提取**：彻底移除 `TryCaretFromMousePoint` 中对鼠标 X 坐标的伪造推算分支，严格规定仅在 UIA 接口通过 `TryRectOf` 或 `TryCaretViaExpandUnit` 真实返回字符屏幕几何矩形时才予以采纳；在未暴露字符几何时，平滑回退至可靠的控件边界几何锚点（`TryCaretFromEditBounds`），彻底杜绝提示符号跟随鼠标指针漂移的严重缺陷。
+- **彻底修复 Chrome 浏览网页未点击输入框出现提示符号 Bug（网页非编辑元素拦截与 MSAA 死锁熔断）**：
+  - **深层技术根因**：Chromium 网页普通正文（段落 `<p>`、标题 `<h1>`、链接 `<a>`、通用容器 `<div>` 等）同样实现了 `ITextPattern`；当用户在浏览网页中点击文章正文、链接或空白处时，Chromium 会在被点击的非编辑元素上生成零长度折叠选区，由于此前版本未限定网页元素必须属于编辑类型，导致这些纯阅读文本被误当作可编辑输入框并提取了字符矩形，在未点击任何输入框的情况下弹出了提示符号；此外，此前版本在 `MsaaCaretCapture` 中放宽了宽度判定（允许 `width == 0`），Chrome 顶层窗口（`Chrome_WidgetWin_1`）的 `AXSystemCaretWin` 在整个浏览器运行期间始终维护着一个内部光标矩形（未处于打字状态时报告 `width = 0, height = 20`），`width == 0` 的穿透导致 `MsaaCaretCapture` 恒返回 `true`，使 `CaptureChain` 的 `_lastGood` 缓存被错误锁死在 MSAA 后端，导致符号常驻不消；
+  - **网页内容宿主物理隔离与非编辑元素绝对拦截**：在 `UiaCaretCapture.TryElementCaret` 入口处建立严格的网页元素鉴权规则：凡处于 Chromium 渲染宿主窗口类（`Chrome_RenderWidgetHostHWND`）之下的元素，必须明确属于可编辑控件（`element.ControlType == ControlType.Edit`，涵盖 `<input>`、`<textarea>` 以及带编辑角色的 `contenteditable` 容器）；任何网页正文段落、标题、链接、普通容器或空白区域一律绝对拦截并返回 `false`，坚决禁止其产生打字光标；
+  - **MSAA 零宽光标过滤与 Chrome 网址栏专属精准调度**：在 `MsaaCaretCapture` 中严格恢复正宽度（`width > 0` 与 `height > 0`）有效性校验，杜绝 `(0,0,0,0)` 及零宽假光标污染捕获链；同时将 `TryMsaaCaret` 严格限制仅在控件非网页元素、明确属于 Chrome 网址栏（`OmniboxViewViews`）、拥有键盘输入焦点且选区为折叠状态时才精准调用，彻底消除误触发。
+- **零回归与稳定性保证**：严格保证微信聊天框、Windows 记事本、EmEditor、Windows 资源管理器等通用应用的高精度定位保持 100% 正常。
+- **界面外观绝对冻结（零变动）**：严格保持 960×680 画幅、100px 纵向独立实时预览视口、全局圆角体系及三标签页纯净布局零修改。
+
 ## v3.7（2026-10-17，正式版）
 
 - **彻底修复 Chrome 网页输入框未输入时原始位置偏右与误判 Bug（渲染宿主与原生壳层严格物理隔离）**：

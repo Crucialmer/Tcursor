@@ -295,6 +295,13 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (IsChromiumPageRoot(element))
                 return false;
 
+            // 网页内容宿主物理隔离：处于 Chromium 渲染宿主（Chrome_RenderWidgetHostHWND）之下的元素，
+            // 必须明确是可编辑控件（ControlType.Edit，如 input/textarea/contenteditable），
+            // 严禁将网页普通段落、标题、链接、正文容器等非编辑元素的选区误判为打字光标！
+            bool isWeb = IsWebElement(element);
+            if (isWeb && element.ControlType != ControlType.Edit)
+                return false;
+
             var text2 = element.Patterns.Text2.PatternOrDefault;
             if (text2 is not null)
             {
@@ -337,14 +344,19 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         // WPF 关键修复：借相邻字符边缘推算
                         if (TryCaretViaNeighborRange(selRange, out caret))
                             return true;
+
+                        // Chromium Views 专用：对于 Chrome 网址输入框（OmniboxViewViews），
+                        // 折叠选区自身不返回字符几何矩形，且仅在拥有焦点时借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取物理屏幕矩形！
+                        string clsName = "";
+                        try { clsName = element.Properties.ClassName.ValueOrDefault ?? ""; } catch { }
+                        if (!isWeb && clsName.Contains("Omnibox", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (TryMsaaCaret(element, topHwnd, out caret))
+                                return true;
+                        }
                     }
 
-                    // Chromium Views 专用：对于 Chrome 网址输入框（OmniboxViewViews）等控件，
-                    // 折叠选区自身不返回字符几何矩形，优先借助 Chromium 活跃系统光标（MSAA OBJID_CARET）提取绝对精确的光标物理矩形！
-                    if (TryMsaaCaret(element, topHwnd, out caret))
-                        return true;
-
-                    // 尝试通过鼠标坐标辅助拾取点击处字符（支持 Chromium Views 鼠标点击即时跟随）
+                    // 尝试通过鼠标坐标辅助拾取点击处字符
                     if (TryCaretFromMousePoint(element, text, out caret))
                         return true;
 
@@ -354,18 +366,13 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 }
                 else
                 {
-                    if (TryMsaaCaret(element, topHwnd, out caret))
-                        return true;
-                    if (TryCaretFromMousePoint(element, text, out caret))
-                        return true;
+                    // 选区为空（非输入编辑态）：仅当拥有焦点的可编辑输入框（如刚获得焦点但尚未产生选区的 Edit 控件）才允许从控件几何推算
                     if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
             }
             else if (IsEditableControl(element))
             {
-                if (TryMsaaCaret(element, topHwnd, out caret))
-                    return true;
                 if (TryCaretFromEditBounds(element, out caret, isFocusedElement))
                     return true;
             }
@@ -775,21 +782,6 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                             return true;
                         if (TryCaretViaExpandUnit(ptRange, out caret))
                             return true;
-
-                        // 对于 Chromium Views（如 Chrome 网址栏）等不暴露单字符几何的控件，
-                        // 当 RangeFromPoint 成功命中（确认鼠标处于有效文本范围内）时，直接基于鼠标 X 坐标还原光标！
-                        double scale = GetDpiScaleFor(mousePt.X, mousePt.Y);
-                        int padX = (int)Math.Round(10 * scale);
-                        string className = "";
-                        try { className = element.Properties.ClassName.ValueOrDefault ?? ""; } catch { }
-                        if (className.Contains("Omnibox", StringComparison.OrdinalIgnoreCase))
-                            padX = (int)Math.Round(38 * scale);
-
-                        int caretHeight = Math.Min((int)Math.Round(18 * scale), Math.Max(12, (int)bounds.Height - 4));
-                        int caretTop = (int)bounds.Top + Math.Max(2, ((int)bounds.Height - caretHeight) / 2);
-                        int clampedX = Math.Clamp(mousePt.X, (int)bounds.Left + padX, Math.Max((int)bounds.Left + padX, (int)bounds.Right - (int)Math.Round(8 * scale)));
-                        caret = new CaretRect(clampedX, caretTop, clampedX + 1, caretTop + caretHeight);
-                        return true;
                     }
                 }
             }
@@ -804,9 +796,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     private const uint OBJID_CARET = 0xFFFFFFF8;
 
     /// <summary>
-    /// 从 MSAA OBJID_CARET 提取真实光标位置（完美解决 Chrome 网址栏 OmniboxViewViews 等
-    /// Views 控件在 UIA 下不暴露字符几何矩形、导致无法随鼠标点击移动的问题）。
-    /// Chromium 内部维护 AXSystemCaretWin，在网址栏或网页光标移动/点击时均实时更新物理坐标。
+    /// 从 MSAA OBJID_CARET 提取真实光标位置（用于 Chrome 网址栏 OmniboxViewViews 等
+    /// Views 控件在 UIA 下不暴露字符几何矩形、折叠选区端点推算失败时提取光标）。
+    /// Chromium 内部维护 AXSystemCaretWin，在网址栏光标移动/点击时实时更新物理坐标。
     /// </summary>
     private static bool TryMsaaCaret(AutomationElement element, IntPtr topHwnd, out CaretRect caret)
     {
@@ -821,14 +813,6 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
 
             if (topHwnd != IntPtr.Zero && topHwnd != elHwnd && TryMsaaCaretHwnd(topHwnd, element, out caret))
                 return true;
-
-            var gti = new Win32.NativeMethods.GUITHREADINFO { cbSize = Marshal.SizeOf<Win32.NativeMethods.GUITHREADINFO>() };
-            if (Win32.NativeMethods.GetGUIThreadInfo(0, ref gti) && gti.hwndFocus != IntPtr.Zero &&
-                gti.hwndFocus != elHwnd && gti.hwndFocus != topHwnd)
-            {
-                if (TryMsaaCaretHwnd(gti.hwndFocus, element, out caret))
-                    return true;
-            }
         }
         catch { }
         return false;
