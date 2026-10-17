@@ -186,38 +186,16 @@ internal sealed class CaptureChain : IDisposable
     }
 
     /// <summary>
-    /// 捕获全失败后的智能兜底：当目标应用（如以管理员运行的 Quicker、自绘搜索栏）
-    /// 因 UIPI 阻断跨进程 UIA 或无标准文本光标时，优先通过鼠标文本工字梁指针（IDC_IBEAM）
-    /// 或活动焦点输入框边界推算光标锚点，确保状态符号仍能稳定呈现。
+    /// 捕获全失败后的智能兜底：当目标应用（如跨进程 UIPI 阻断跨进程 UIA 的独立输入框）
+    /// 存在明确的前台键盘焦点输入控件时，基于控件几何推算光标首行锚点。
+    /// （注：绝不使用 IDC_IBEAM 鼠标指针位置兜底，防止鼠标移动到文本框内部即产生漂移误判）
     /// </summary>
     private static bool TryFallbackCaret(IntPtr hwnd, out CaretRect rect)
     {
         rect = default;
         try
         {
-            // 1. 优先检查全局鼠标光标形态是否为文本工字梁（IDC_IBEAM，说明用户正将鼠标悬停在文本输入区）
-            var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
-            if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
-            {
-                IntPtr iBeam = LoadCursor(IntPtr.Zero, IDC_IBEAM);
-                if (iBeam != IntPtr.Zero && ci.hCursor == iBeam)
-                {
-                    if (GetWindowRect(hwnd, out RECT winRect))
-                    {
-                        int mx = ci.ptScreenPos.X;
-                        int my = ci.ptScreenPos.Y;
-                        // 鼠标在当前窗口矩形内部或边缘 24px 容差范围内
-                        if (mx >= winRect.Left - 24 && mx <= winRect.Right + 24 &&
-                            my >= winRect.Top - 24 && my <= winRect.Bottom + 24)
-                        {
-                            rect = new CaretRect(mx, my - 10, mx + 1, my + 10);
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            // 2. 检查前台 GUI 线程的键盘焦点窗口是否属于明确的文本输入类控件（如标准 Edit/RichEdit/文本框）
+            // 检查前台 GUI 线程的键盘焦点窗口是否属于明确的文本输入类控件（如标准 Edit/RichEdit/文本框）
             var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
             if (GetGUIThreadInfo(0, ref gti) && gti.hwndFocus != IntPtr.Zero)
             {
@@ -235,12 +213,12 @@ internal sealed class CaptureChain : IDisposable
                     {
                         int w = focusRect.Right - focusRect.Left;
                         int h = focusRect.Bottom - focusRect.Top;
-                        // 紧凑型独立输入框或搜索栏（高度在 14px~120px 之间）
-                        if (w >= 16 && h >= 14 && h <= 120)
+                        if (w >= 16 && h >= 14)
                         {
                             int padX = Math.Min(8, Math.Max(4, w / 16));
-                            int padY = Math.Max(2, (h - 20) / 2);
-                            int caretH = Math.Min(20, Math.Max(12, h - 4));
+                            int padY = Math.Min(4, Math.Max(2, (h - 20) / 2));
+                            // 多行控件只取首行高度 20px，单行框（<=36px）贴合内部
+                            int caretH = h <= 36 ? Math.Min(20, Math.Max(12, h - padY * 2)) : 20;
                             rect = new CaretRect(focusRect.Left + padX, focusRect.Top + padY, focusRect.Left + padX + 1, focusRect.Top + padY + caretH);
                             return true;
                         }

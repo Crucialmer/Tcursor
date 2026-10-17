@@ -296,8 +296,56 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (bounds.Width > 0 && bounds.Height > 0)
             {
                 int padX = Math.Min(6, (int)bounds.Width / 4);
+                bool isSearchOrAddress = false;
+                try
+                {
+                    string name = edit.Properties.Name.ValueOrDefault ?? "";
+                    string className = edit.Properties.ClassName.ValueOrDefault ?? "";
+                    string autoId = edit.Properties.AutomationId.ValueOrDefault ?? "";
+                    if (name.Contains("搜索", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("地址", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Address", StringComparison.OrdinalIgnoreCase) ||
+                        className.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                        className.Contains("Breadcrumb", StringComparison.OrdinalIgnoreCase) ||
+                        autoId.Contains("Search", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isSearchOrAddress = true;
+                    }
+
+                    // 探测左侧图标/子元素（如文件管理器搜索框左侧的 🔍 放大镜图标，避开图标区域）
+                    var children = edit.FindAllChildren();
+                    if (children is { Length: > 0 })
+                    {
+                        foreach (var child in children)
+                        {
+                            var cb = child.BoundingRectangle;
+                            if (cb.Width > 0 && cb.Left >= bounds.Left && cb.Right <= bounds.Left + 60)
+                            {
+                                if (child.ControlType == ControlType.Image || child.ControlType == ControlType.Button)
+                                {
+                                    padX = Math.Max(padX, (int)(cb.Right - bounds.Left) + 4);
+                                    isSearchOrAddress = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 若属于搜索栏/地址栏且无子元素测量值，使用通用图标安全内边距 28px（杜绝文件管理器窗口偏左）
+                if (isSearchOrAddress && padX < 28)
+                {
+                    padX = 28;
+                }
+
                 int padY = Math.Min(4, (int)bounds.Height / 4);
-                int caretHeight = Math.Max(12, (int)bounds.Height - padY * 2);
+                // 紧凑单行框（<=36px）贴合控件高度；多行输入框（如微信聊天框、Notepad、高度 > 36px）
+                // 首行光标只占标准单行高度（20px），绝不能将整个多行区域（100~200px）算作光标高度（杜绝微信偏下）
+                int caretHeight = bounds.Height <= 36
+                    ? Math.Max(12, (int)bounds.Height - padY * 2)
+                    : 20;
+
                 int left = (int)bounds.Left + padX;
                 int top = (int)bounds.Top + padY;
                 caret = new CaretRect(left, top, left + 1, top + caretHeight);

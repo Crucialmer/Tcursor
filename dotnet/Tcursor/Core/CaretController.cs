@@ -271,8 +271,19 @@ internal sealed class CaretController : IDisposable
         int offsetY = (int)Math.Round((rule.OffsetY + config.ScreenOffsetY) * scale);
         // 「柔和阴影」边框样式会在位图四周扩出阴影边距：显示位置相应回补，保证可见形状锚点不变
         int pad = SymbolRenderer.GetShadowPadding(style, config.ShapeEdgeStyle, scale);
+
+        // 光标行高智能校准（解决 EmEditor 等自绘编辑器光标高度仅为 1px 导致符号偏上、或全框高度导致偏下的问题）
+        int caretH = caret.Bottom - caret.Top;
+        int minLineH = (int)Math.Round(14 * scale);
+        int effectiveBottom = caret.Bottom;
+        if (caretH < minLineH)
+        {
+            // 目标程序（如 EmEditor）仅报告了 1px 或极矮的顶部锚点，扩充至标准单行高度（18px * scale）
+            effectiveBottom = caret.Top + (int)Math.Round(18 * scale);
+        }
+
         int x = caret.Left + offsetX - pad;
-        int y = (config.OriginBelow ? caret.Bottom : caret.Top) + offsetY - pad;
+        int y = (config.OriginBelow ? effectiveBottom : caret.Top) + offsetY - pad;
 
         bool stateChanged = state != _lastState;
         bool moved = x != _lastPos.X || y != _lastPos.Y;
