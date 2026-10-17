@@ -21,6 +21,7 @@ internal static class Selftest
         var sb = new StringBuilder();
         try
         {
+            outDir = Path.GetFullPath(outDir);
             Directory.CreateDirectory(outDir);
             sb.AppendLine("Tcursor selftest @ " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             sb.AppendLine("Version: " + AppInfo.Version);
@@ -190,6 +191,18 @@ internal static class Selftest
                 uint ownPid = (uint)Environment.ProcessId;
                 bool ok = chain.TryCapture(ownPid, testForm.Handle, "GUI>UIA>MSAA", out CaretRect cr);
                 sb.AppendLine($"test-input-capture: {(ok ? $"OK via {chain.LastUsedMode} [{cr.Left},{cr.Top}]" : "FAIL")}");
+
+                bool okUia = chain.TryCapture(ownPid, testForm.Handle, "UIA", out CaretRect crUia);
+                sb.AppendLine($"test-input-capture-uia: {(okUia ? $"OK via {chain.LastUsedMode} [{crUia.Left},{crUia.Top}]" : "FAIL")}");
+
+                using var auto = new FlaUI.UIA3.UIA3Automation();
+                var fe = auto.FocusedElement();
+                sb.AppendLine($"test-focused-element: {(fe is null ? "null" : $"{fe.ControlType} name={fe.Name} class={fe.ClassName}")}");
+
+                var fr = new ForegroundReader();
+                var winInfo = fr.Read();
+                sb.AppendLine($"test-foreground-reader: hwnd={winInfo.Hwnd} pid={winInfo.Pid} proc={winInfo.Process} title={winInfo.Title} class={winInfo.Class}");
+
                 testForm.Close();
             }
             catch (Exception ex)

@@ -241,7 +241,13 @@ public static class ConfigStore
         {
             Core.Log.Error(ex);
         }
-        return new AppConfig();
+
+        var defaultCfg = new AppConfig();
+        if (IsPortable() && defaultCfg.Rules.Count == 0)
+        {
+            ImportRulesFromAppDataIfAvailable(defaultCfg);
+        }
+        return defaultCfg;
     }
 
     /// <summary>跨权限平滑容灾：以管理员身份或便携模式启动时，若本地规则为空，自动导入 AppData 中已有的白名单规则</summary>

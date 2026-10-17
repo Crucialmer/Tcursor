@@ -137,6 +137,20 @@ internal sealed class CaptureChain : IDisposable
         slowFailure = false;
         if (ok)
         {
+            // 严格坐标校验：捕获到的光标坐标必须位于目标窗口可见包围盒内部（加 32px 容差允许输入联想/自动补全浮窗）
+            // 杜绝任何后端因返回 (0,0) 假坐标或外来窗口坐标而污染 _lastGood 缓存并导致后续帧死锁在错误后端
+            if (GetWindowRect(hwnd, out RECT winRect))
+            {
+                int cx = rect.Left;
+                int cy = (rect.Top + rect.Bottom) / 2;
+                if (cx < winRect.Left - 32 || cx > winRect.Right + 32 ||
+                    cy < winRect.Top - 32 || cy > winRect.Bottom + 32)
+                {
+                    rect = default;
+                    return false;
+                }
+            }
+
             backoff.Remove(name);
             return true;
         }

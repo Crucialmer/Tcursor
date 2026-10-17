@@ -29,7 +29,6 @@ internal static class Program
             return;
         }
 
-        // 无界面更新检查 / 更新（自动化与部署验证用；结果写 JSON 文件）
         if (args.Length >= 2 && args[0] == "--check-update")
         {
             Log.Init();

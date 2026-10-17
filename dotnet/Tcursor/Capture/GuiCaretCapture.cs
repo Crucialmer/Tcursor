@@ -32,7 +32,7 @@ internal sealed class GuiCaretCapture : ICaretCapture
             if (!ClientToScreen(gti.hwndCaret, ref topLeft) || !ClientToScreen(gti.hwndCaret, ref bottomRight))
                 return false;
 
-            if (bottomRight.X - topLeft.X < 0 || bottomRight.Y - topLeft.Y < 0)
+            if (bottomRight.X - topLeft.X < 0 || bottomRight.Y - topLeft.Y <= 0)
                 return false;
 
             // 坐标合理性校验（防止异常值把窗口丢到天外）

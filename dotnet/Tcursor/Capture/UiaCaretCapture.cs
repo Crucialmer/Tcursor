@@ -188,8 +188,26 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         try
         {
             AutomationElement? focused = automation.FocusedElement();
-            if (focused is not null && TryElementCaret(focused, out caret, isFocusedElement: true))
-                return true;
+            if (focused is not null)
+            {
+                // 严格校验：焦点元素必须属于目标前台窗口（或其子控件、同进程），
+                // 杜绝跨窗口、桌面、任务栏等外来焦点元素的几何污染
+                bool belongs = false;
+                IntPtr focusedHwnd = (IntPtr)focused.Properties.NativeWindowHandle.ValueOrDefault;
+                if (focusedHwnd != IntPtr.Zero)
+                {
+                    belongs = focusedHwnd == hwnd || Win32.NativeMethods.GetAncestor(focusedHwnd, Win32.NativeMethods.GA_ROOT) == hwnd;
+                }
+                else
+                {
+                    Win32.NativeMethods.GetWindowThreadProcessId(hwnd, out uint hwndPid);
+                    int focusedPid = focused.Properties.ProcessId.ValueOrDefault;
+                    belongs = hwndPid != 0 && focusedPid == (int)hwndPid;
+                }
+
+                if (belongs && TryElementCaret(focused, out caret, isFocusedElement: true))
+                    return true;
+            }
         }
         catch
         {
@@ -234,6 +252,12 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         return false;
     }
 
+    private static bool IsEditableControl(AutomationElement element)
+    {
+        var ct = element.ControlType;
+        return ct == ControlType.Edit || ct == ControlType.Document;
+    }
+
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
     /// （含 WPF 折叠选区无矩形修复与相邻字符推算，失败时按输入控件边界推算）。</summary>
     private static bool TryElementCaret(AutomationElement element, out CaretRect caret, bool isFocusedElement = false)
@@ -273,15 +297,15 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                         return true;
 
                     // 若输入框为空或无法通过相邻字符获取，回退到输入控件边界推算
-                    if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                    if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                         return true;
                 }
-                else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+                else if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
                 {
                     return true;
                 }
             }
-            else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret, isFocusedElement))
+            else if (IsEditableControl(element) && TryCaretFromEditBounds(element, out caret, isFocusedElement))
             {
                 return true;
             }
@@ -474,7 +498,9 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         {
             if (r.Height > 0 && r.Width >= 0)
             {
-                caret = new CaretRect(r.Left, r.Top, r.Right, r.Bottom);
+                int w = Math.Min(r.Width, MaxCaretLikeWidthPx);
+                if (w <= 0) w = 1;
+                caret = new CaretRect(r.Left, r.Top, r.Left + w, r.Bottom);
                 return true;
             }
         }
