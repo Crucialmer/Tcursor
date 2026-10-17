@@ -264,7 +264,7 @@ internal sealed class CaretController : IDisposable
         // 光标应在窗口范围内（滚动出视野时不显示）
         if (GetWindowRect(win.Hwnd, out RECT windowRect))
         {
-            int cx = caret.Left;
+            int cx = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
             int cy = (caret.Top + caret.Bottom) / 2;
             if (cx < windowRect.Left - 24 || cx > windowRect.Right + 24 ||
                 cy < windowRect.Top - 24 || cy > windowRect.Bottom + 24)
@@ -347,9 +347,10 @@ internal sealed class CaretController : IDisposable
         int targetLineH = (int)Math.Round(22 * scale);
         int maxUiLineH = (int)Math.Round(44 * scale);
 
-        // 微信/即时通讯类应用视觉对齐核心算法（彻底解决“仍然偏下”）：
+        // 微信/即时通讯类应用视觉对齐核心算法（彻底解决“搜索框偏上”与“偏下”）：
         // 1. TSF/Win32 下若 caretH 为 10~24px 范围，说明底层报告了真实的单行光标高度，有效底边直取 caret.Bottom；
-        // 2. 若 caretH < 10px（TSF 选区退化残片/基线坐标），底层 top 已直接位于文字基线（Baseline），仅需补 1px 微量对齐；
+        // 2. 若 caretH < 10px（TSF 选区退化残片/微小残线），底层 top 已处于文字行顶，必须补齐为微信标准 16px*scale 行高，
+        //    彻底消除此前仅 +1px 导致搜索框在未输入/微小光标时突发严重偏上的缺陷；
         // 3. 若 caretH > 24px（多行编辑区或聊天框容器整框包围盒，如 48~150px），首行文字严格按 14px*scale 标准聊天字号折叠。
         // 通用窗口与现代编辑器（Notepad、Chrome、EmEditor、资源管理器等）维持标准 22px*scale 行高归一化。
         int effectiveBottom;
@@ -361,7 +362,7 @@ internal sealed class CaretController : IDisposable
             }
             else if (caretH < (int)Math.Round(10 * scale))
             {
-                effectiveBottom = caret.Top + (int)Math.Round(1 * scale);
+                effectiveBottom = caret.Top + (int)Math.Round(16 * scale);
             }
             else
             {
@@ -377,7 +378,10 @@ internal sealed class CaretController : IDisposable
             effectiveBottom = caret.Bottom;
         }
 
-        int x = caret.Left + offsetX - pad;
+        // 输拼音打字阶段与选区处理：若后端报告存在字符宽度的选区/组字串（Right > Left + 1），
+        // 符号恒定锚定在组字串末尾（caret.Right），绝不在首尾来回跳跃
+        int caretX = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
+        int x = caretX + offsetX - pad;
         int y = (config.OriginBelow ? effectiveBottom : caret.Top) + offsetY - pad;
 
         bool stateChanged = state != _lastState;

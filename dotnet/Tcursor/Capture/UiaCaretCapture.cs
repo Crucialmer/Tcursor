@@ -307,7 +307,11 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             {
                 ITextRange? range = text2.GetCaretRange(out bool isActive);
                 if (TryRectOf(range, out caret) && caret.Right - caret.Left <= MaxCaretLikeWidthPx)
+                {
+                    int caretX = caret.Right > caret.Left + 1 ? caret.Right : caret.Left;
+                    caret = new CaretRect(caretX, caret.Top, caretX + 1, caret.Bottom);
                     return true;
+                }
                 // XAML/壳控件/Chromium 的 Text2 光标范围常常没有几何矩形（如 Win11 资源管理器地址栏、搜索框）：
                 // 仅在光标处于活动状态时，借扩展字符单元或相邻字符推算光标位置
                 if (range is not null && isActive)
@@ -329,7 +333,8 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                     if (TryRectOf(selRange, out CaretRect selRect)
                         && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
                     {
-                        caret = selRect;
+                        int caretX = selRect.Right > selRect.Left + 1 ? selRect.Right : selRect.Left;
+                        caret = new CaretRect(caretX, selRect.Top, caretX + 1, selRect.Bottom);
                         return true;
                     }
 
@@ -488,20 +493,20 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
                 int padY;
                 int caretHeight;
 
-                if (isChat)
+                if (isChat && bounds.Height > Math.Round(36 * scale))
                 {
-                    // 微信/即时通讯软件聊天输入框（高度通常 100~200px）：
+                    // 微信/即时通讯软件多行聊天输入框（高度通常 100~200px）：
                     // 标准首行左边距 12px*scale，顶边距 8px*scale，首行高度 16px*scale，与打字时光标基准绝对吻合
                     padX = (int)Math.Round(12 * scale);
                     padY = (int)Math.Round(8 * scale);
                     caretHeight = (int)Math.Round(16 * scale);
                 }
-                else if (isSearchOrAddress)
+                else if (isSearchOrAddress || (isChat && bounds.Height <= Math.Round(36 * scale)))
                 {
-                    // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框：
-                    // 避开左侧锁头/搜索芯片/放大镜图标（未探测到时取 38px*scale 安全留白）
-                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round(38 * scale);
-                    caretHeight = (int)Math.Round(18 * scale);
+                    // Chrome 网址输入框（Omnibox）/ Windows 资源管理器地址与搜索框 / 微信顶栏单行搜索框：
+                    // 避开左侧锁头/搜索芯片/放大镜图标（未探测到时取微信 10px / 网址栏 38px 安全留白）
+                    padX = detectedIconRight > 0 ? detectedIconRight : (int)Math.Round((isChat ? 10 : 38) * scale);
+                    caretHeight = (int)Math.Round(16 * scale);
                     if (bounds.Height < caretHeight + 4)
                         caretHeight = Math.Max(12, (int)bounds.Height - 4);
                     // 单行搜索/地址栏文字垂直居中排版

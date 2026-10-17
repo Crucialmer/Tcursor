@@ -215,7 +215,11 @@ internal sealed class TsfCaretCapture : ICaretCapture
                     right = left + 1;
                 if (bottom <= top)
                     bottom = top + 1;
-                caret = new CaretRect(left, top, right, bottom);
+                // 输拼音组字阶段与选区处理：
+                // 当存在字符跨度时（right > left + 1），输入插入点恒在拼音文本末尾（right），
+                // 彻底杜绝 TSF 读取首字母与 Win32 GUI 读取尾字母交替导致的来回跳跃
+                int caretX = right > left + 1 ? right : left;
+                caret = new CaretRect(caretX, top, caretX + 1, bottom);
                 return true;
             }
             finally
