@@ -96,6 +96,10 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(MakeItem("打开配置文件", (_, _) => OpenConfigFile()));
         menu.Items.Add(MakeItem("打开数据目录", (_, _) => OpenDataDir()));
         menu.Items.Add(MakeItem("重新加载配置", (_, _) => ReloadConfig()));
+        if (!IsElevated())
+        {
+            menu.Items.Add(MakeItem("以管理员身份重启", (_, _) => RestartAsAdmin()));
+        }
         menu.Items.Add(_startupItem);
         menu.Items.Add(new ToolStripSeparator { Margin = new Padding(0, 4, 0, 4) });
         _updateItem = MakeItem("检查更新…", (_, _) => OnUpdateMenu());
@@ -508,6 +512,39 @@ internal sealed class TrayApp : ApplicationContext
         TryInstallOnExit();   // 档①：退出时把已就绪的更新装好（下次启动即新版本，不重启）
         _tray.Visible = false;
         ExitThread();
+    }
+
+    private static bool IsElevated()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void RestartAsAdmin()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Environment.ProcessPath ?? Application.ExecutablePath,
+                UseShellExecute = true,
+                Verb = "runas",
+            };
+            System.Diagnostics.Process.Start(psi);
+            Application.Exit();
+        }
+        catch
+        {
+            // 用户取消 UAC 授权提示
+        }
     }
 
     protected override void Dispose(bool disposing)

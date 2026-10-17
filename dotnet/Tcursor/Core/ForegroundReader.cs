@@ -18,12 +18,24 @@ internal sealed class ForegroundReader
     private readonly StringBuilder _titleBuffer = new(512);
     private readonly Dictionary<uint, (string Name, long Ticks)> _processNames = new();
 
+    private static readonly int GtiSize = System.Runtime.InteropServices.Marshal.SizeOf<GUITHREADINFO>();
+
     /// <summary>读取前台窗口信息；needTitle/needClass 为 false 时跳过对应系统调用与字符串分配</summary>
     public WindowInfo Read(bool needTitle = true, bool needClass = true)
     {
         IntPtr hwnd = GetForegroundWindow();
         if (hwnd == IntPtr.Zero)
             return Empty;
+
+        var gti = new GUITHREADINFO { cbSize = GtiSize };
+        if (GetGUIThreadInfo(0, ref gti))
+        {
+            if (gti.hwndActive != IntPtr.Zero && gti.hwndActive != hwnd)
+            {
+                // 如果当前前台线程内有激活的弹出窗口（如 Quicker 快捷搜索框、独立悬浮输入面板），优先采纳该活动窗口
+                hwnd = gti.hwndActive;
+            }
+        }
 
         GetWindowThreadProcessId(hwnd, out uint pid);
         if (pid == 0)

@@ -185,7 +185,35 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
         if (element is not null && TryElementCaret(element, out caret))
             return true;
 
-        // 退化：全局焦点元素（Chromium 等：顶层窗口无 Text 模式，光标在焦点元素（文档/输入框）上）
+        // 退化 1：从目标窗口元素子树查找活动焦点控件或编辑框（解决 WPF / Quicker 等顶层窗口无 TextPattern 且由子控件承载输入的问题）
+        if (element is not null)
+        {
+            try
+            {
+                var edits = element.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
+                if (edits is { Length: > 0 })
+                {
+                    // 优先检查获得键盘焦点的编辑框
+                    foreach (var edit in edits)
+                    {
+                        if (edit.Properties.HasKeyboardFocus.ValueOrDefault && TryElementCaret(edit, out caret))
+                            return true;
+                    }
+                    // 其次尝试其余编辑框
+                    foreach (var edit in edits)
+                    {
+                        if (TryElementCaret(edit, out caret))
+                            return true;
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略跨进程 UIPI 或子树查找异常
+            }
+        }
+
+        // 退化 2：全局焦点元素（Chromium 等：顶层窗口无 Text 模式，光标在焦点元素（文档/输入框）上）
         AutomationElement? focused;
         try
         {
@@ -202,7 +230,7 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
     }
 
     /// <summary>在单个元素上尝试取光标：Text2.GetCaretRange 优先，Text.GetSelection 端点退化
-    /// （仅当选区为“光标形”时采用）。</summary>
+    /// （含 WPF 折叠选区无矩形修复与相邻字符推算，失败时按输入控件边界推算）。</summary>
     private static bool TryElementCaret(AutomationElement element, out CaretRect caret)
     {
         caret = default;
@@ -224,19 +252,61 @@ internal sealed class UiaCaretCapture : ICaretCapture, IDisposable
             if (text is not null && !IsChromiumPageRoot(element))
             {
                 ITextRange[] selection = text.GetSelection();
-                if (selection is { Length: > 0 }
-                    && TryRectOf(selection[0], out CaretRect selRect)
-                    && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
+                if (selection is { Length: > 0 })
                 {
-                    caret = selRect;
+                    ITextRange selRange = selection[0];
+                    if (TryRectOf(selRange, out CaretRect selRect)
+                        && selRect.Right - selRect.Left <= MaxCaretLikeWidthPx)
+                    {
+                        caret = selRect;
+                        return true;
+                    }
+
+                    // WPF 关键修复：WPF TextBox 的 TextPattern.GetSelection() 在纯光标闪烁（折叠选区）时，
+                    // GetBoundingRectangles() 恒返回空数组！必须通过相邻字符范围边缘推算光标
+                    if (TryCaretViaNeighborRange(selRange, out caret))
+                        return true;
+
+                    // 若输入框为空或无法通过相邻字符获取，回退到输入控件边界推算
+                    if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+                        return true;
+                }
+                else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+                {
                     return true;
                 }
+            }
+            else if (element.ControlType == ControlType.Edit && TryCaretFromEditBounds(element, out caret))
+            {
+                return true;
             }
         }
         catch
         {
             // 元素失效/模式不可用：按未命中处理
         }
+        return false;
+    }
+
+    /// <summary>从编辑框自身几何边界推算光标位置（用于空文本框或未暴露文本几何的自绘/WPF 输入框）</summary>
+    private static bool TryCaretFromEditBounds(AutomationElement edit, out CaretRect caret)
+    {
+        caret = default;
+        try
+        {
+            var bounds = edit.BoundingRectangle;
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                int padX = Math.Min(6, (int)bounds.Width / 4);
+                int padY = Math.Min(4, (int)bounds.Height / 4);
+                int caretHeight = Math.Max(12, (int)bounds.Height - padY * 2);
+                int left = (int)bounds.Left + padX;
+                int top = (int)bounds.Top + padY;
+                caret = new CaretRect(left, top, left + 1, top + caretHeight);
+                return true;
+            }
+        }
+        catch { }
         return false;
     }
 

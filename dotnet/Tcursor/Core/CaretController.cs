@@ -225,8 +225,8 @@ internal sealed class CaretController : IDisposable
         {
             int cx = caret.Left;
             int cy = (caret.Top + caret.Bottom) / 2;
-            if (cx < windowRect.Left - 4 || cx > windowRect.Right + 4 ||
-                cy < windowRect.Top - 4 || cy > windowRect.Bottom + 4)
+            if (cx < windowRect.Left - 24 || cx > windowRect.Right + 24 ||
+                cy < windowRect.Top - 24 || cy > windowRect.Bottom + 24)
             {
                 HideSymbol();
                 return;

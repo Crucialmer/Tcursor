@@ -60,7 +60,7 @@ internal static class StateDetector
                 targetWnd = gti.hwndFocus;
                 tid = GetWindowThreadProcessId(targetWnd, out _);
             }
-            else if (gti.hwndActive != IntPtr.Zero && targetWnd == IntPtr.Zero)
+            else if (gti.hwndActive != IntPtr.Zero)
             {
                 targetWnd = gti.hwndActive;
                 tid = GetWindowThreadProcessId(targetWnd, out _);

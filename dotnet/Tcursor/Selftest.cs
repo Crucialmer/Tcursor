@@ -175,6 +175,28 @@ internal static class Selftest
                 }
             }
 
+            // 真实输入控件光标捕获验证（验证 GUI/UIA 子控件光标获取）
+            try
+            {
+                using var testForm = new Form { Text = "Tcursor.CaretTest", ClientSize = new Size(300, 100), StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+                var tb = new TextBox { Text = "Test", Bounds = new Rectangle(20, 20, 200, 30) };
+                testForm.Controls.Add(tb);
+                testForm.Show();
+                tb.Focus();
+                tb.SelectionStart = 2;
+                Application.DoEvents();
+
+                using var chain = new CaptureChain();
+                uint ownPid = (uint)Environment.ProcessId;
+                bool ok = chain.TryCapture(ownPid, testForm.Handle, "GUI>UIA>MSAA", out CaretRect cr);
+                sb.AppendLine($"test-input-capture: {(ok ? $"OK via {chain.LastUsedMode} [{cr.Left},{cr.Top}]" : "FAIL")}");
+                testForm.Close();
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("test-input-capture: FAIL " + ex.Message);
+            }
+
             // 分层窗口渲染路径（含位图/DC 缓存：首次 → 仅移动快速路径 → 换位图重建）
             try
             {

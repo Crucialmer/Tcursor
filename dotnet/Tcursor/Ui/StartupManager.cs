@@ -40,14 +40,57 @@ internal static class StartupManager
         }
     }
 
+    private static bool IsElevated()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static void Enable()
     {
+        if (IsElevated())
+        {
+            // 提权状态下同步创建最高权限登录自启动任务（免 UAC 提示，与 ImTip 机制一致）
+            try
+            {
+                string cmd = $"/create /tn \"Tcursor\" /tr \"\\\"{ExePath}\\\"\" /sc ONLOGON /rl HIGHEST /f";
+                var psi = new System.Diagnostics.ProcessStartInfo("schtasks.exe", cmd)
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                using var p = System.Diagnostics.Process.Start(psi);
+                p?.WaitForExit(2000);
+            }
+            catch { }
+        }
+
         using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, true);
         key?.SetValue(ValueName, $"\"{ExePath}\"");
     }
 
     public static void Disable()
     {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("schtasks.exe", "/delete /tn \"Tcursor\" /f")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(2000);
+        }
+        catch { }
+
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
         key?.DeleteValue(ValueName, false);
     }

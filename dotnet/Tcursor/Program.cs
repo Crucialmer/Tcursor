@@ -22,9 +22,10 @@ internal static class Program
         }
 
         // 自检模式：无需窗口，渲染样例 + 环境探测输出到目录
-        if (args.Length >= 2 && args[0] == "--selftest")
+        if (args.Length >= 1 && args[0] == "--selftest")
         {
-            Environment.Exit(Selftest.Run(args[1]));
+            string outDir = args.Length >= 2 ? args[1] : Path.Combine(Path.GetTempPath(), "tcursor-selftest");
+            Environment.Exit(Selftest.Run(outDir));
             return;
         }
 

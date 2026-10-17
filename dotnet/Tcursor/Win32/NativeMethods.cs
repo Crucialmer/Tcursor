@@ -32,6 +32,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
     [DllImport("user32.dll")] internal static extern bool ReleaseCapture();
     [DllImport("user32.dll")] internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] internal static extern bool GetCursorInfo(out CURSORINFO pci);
+    [DllImport("user32.dll")] internal static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] internal static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
 
     /// <summary>窗口拖动（客户区自绘标题区）用到的消息与命中码</summary>
     internal const int WM_NCLBUTTONDOWN = 0x00A1;
@@ -149,6 +152,15 @@ internal static class NativeMethods
     [StructLayout(LayoutKind.Sequential)]
     internal struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CURSORINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public POINT ptScreenPos;
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct BLENDFUNCTION
     {
@@ -166,13 +178,15 @@ internal static class NativeMethods
         WINEVENT_OUTOFCONTEXT = 0x0000,
         WINEVENT_SKIPOWNPROCESS = 0x0002,
         ULW_ALPHA = 0x00000002,
-        MONITOR_DEFAULTTONEAREST = 2;
+        MONITOR_DEFAULTTONEAREST = 2,
+        CURSOR_SHOWING = 0x00000001;
 
     internal const int
         SW_HIDE = 0,
         SW_SHOWNOACTIVATE = 4,
         VK_SHIFT = 0x10,
         VK_CAPITAL = 0x14,
+        IDC_IBEAM = 32513,
         AC_SRC_OVER = 0,
         AC_SRC_ALPHA = 1;
 }
